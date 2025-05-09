@@ -8,6 +8,8 @@ import { StandardMerkleTree } from "@openzeppelin/merkle-tree";
 
 import { PPMHelper } from "./utils/ppmHelper";
 import { PPMBuilder } from "./utils/ppmBuilder";
+import { SchnorrHelper } from "./utils/schnorrHelper";
+
 describe("PSYMM", function () {
   let subject: SubjectType;
 
@@ -236,193 +238,178 @@ describe("PSYMM", function () {
     });
 
     it("Should allow custody to address transfer", async function () {
-      const ppmBuilder = new PPMBuilder();
-
-
+      console.log("\n=== Multi-Party Custody Transfer Test with Schnorr Signatures ===");
+      
+      // Get chain ID and contract address
       const chainId = await ethers.provider.getNetwork().then(n => n.chainId);
       const contractAddress = await subject.psymm.getAddress();
-
-      const pubKeyX = ethers.hexlify(ethers.randomBytes(32));
-      const pubKeyParity = 0;
-
-      const ppmHelper = new PPMHelper(chainId, contractAddress);
-      ppmHelper.custodyToAddress(subject.user2.address, 0, [
-        {
-          parity: pubKeyParity,
-          x: pubKeyX
-        },
+      
+      // Get token address
+      const usdcAddress = await subject.usdc.getAddress();
+      
+      console.log("Setting up Schnorr key pairs...");
+      
+      // Generate real Schnorr key pairs (with parity=27) instead of address-based signers
+      const keyPair1 = SchnorrHelper.generateKeyPair();
+      const keyPair2 = SchnorrHelper.generateKeyPair();
+      
+      console.log("Key Pair 1 - parity:", keyPair1.publicKey.parity, "x:", keyPair1.publicKey.x);
+      console.log("Key Pair 2 - parity:", keyPair2.publicKey.parity, "x:", keyPair2.publicKey.x);
+      
+      // Create the PPM Helper
+      const ppmHelper = new PPMHelper(Number(chainId), contractAddress as `0x${string}`);
+      
+      const aggregatedPubKey = SchnorrHelper.aggregatePublicKeys([
+        keyPair1.publicKey, 
+        keyPair2.publicKey
       ]);
 
-      // ppmBuilderV2.custodyToAddress(subject.user1.address, 0, [
-      //   {
-      //     parity: pubKeyParity,
-      //     x: pubKeyX
-      //   },
-      // ]);
+      // Add custody to address action with both parties required
+      ppmHelper.custodyToAddress(
+        subject.user2.address, // recipient
+        0, // state
+        [aggregatedPubKey] // both parties required
+      );
 
-      console.log("Custody ID:", ppmHelper.getCustodyID());
-      console.log("PPMs ID:", ppmHelper.getPPM());
-      const proof = ppmHelper.getMerkleProof(0);
-
-      console.log("Proof:", proof);
-      const custodyId = ppmHelper.getCustodyID()
-
-      // const addressEncodedParams = ethers.AbiCoder.defaultAbiCoder().encode(
-      //   ["address"],
-      //   [subject.user2.address]
-      // );
-
-
-    // ppmBuilder.addItem({
-    //   type: "custodyToAddress",
-    //   chainId: chainId,
-    //   pSymm: contractAddress,
-    //   state: 0,
-    //   args: {
-    //     receiver: subject.user2.address
-    //   },
-    //   party: [
-    //     {
-    //       parity: pubKeyParity,
-    //       x: pubKeyX
-    //     },
-    //   ],
-    // });
-
-    // const custodyId = ppmBuilder.buildTreeRoot();
-
-    console.log("Merkle root:", custodyId);
-
-      // const ppm = ppmBuilder.addItem({
-      //   type: "custodyToAddress",
-      //   chainId: await ethers.provider.getNetwork().then(n => n.chainId),
-      //   pSymm: await subject.psymm.getAddress(),
-      //   state: 0,
-      //   args: {
-      //     receiver: subject.user2.address
-      //   }
-      // });
-
-      // First deposit to custody
+      ppmHelper.custodyToAddress(
+        subject.user1.address, // recipient
+        0, // state
+        [keyPair1.publicKey] // both parties required
+      );
+      
+      // Get custody ID from PPM helper
+      const custodyId = ppmHelper.getCustodyID();
+      console.log("Custody ID:", custodyId);
+      
+      // Deposit funds to custody
+      console.log("\nDepositing funds to custody...");
       await subject.usdc.connect(subject.user1).approve(
-        await subject.psymm.getAddress(),
+        contractAddress,
         amount
       );
       await subject.psymm.connect(subject.user1).addressToCustody(
         custodyId,
-        await subject.usdc.getAddress(),
+        usdcAddress,
         amount
       );
-
-      // Get the chain ID for the test network
+      
+      // Verify initial custody balance
+      const initialBalance = await subject.psymm.custodyBalances(
+        custodyId,
+        usdcAddress
+      );
+      console.log("Initial custody balance:", initialBalance.toString());
+      
+      // Create message to sign
+      const timestamp = Math.floor(Date.now() / 1000) + 3600; // 1 hour in the future
+      const withdrawAmount = ethers.parseEther("5");
+      
+      // Create the message to sign for custodyToAddress
+      const message = SchnorrHelper.createCustodyToAddressMessage(
+        timestamp,
+        custodyId,
+        usdcAddress,
+        subject.user2.address,
+        withdrawAmount
+      );
+      
+      console.log("\nCreating multi-party Schnorr signatures...");
+      
+      // Both parties sign the message
+      const signature1 = SchnorrHelper.sign(message, keyPair1);
+      const signature2 = SchnorrHelper.sign(message, keyPair2);
+      
+      console.log("Signature 1:", signature1);
+      console.log("Signature 2:", signature2);
+      
+      // Combine parties' public keys and signatures (for true multi-sig)
       
       
-      // Create public key values
-      // const pubKeyX = ethers.hexlify(ethers.randomBytes(32));
-      // const pubKeyParity = 0;
+      const aggregatedSignature = SchnorrHelper.aggregateSignatures([
+        signature1, 
+        signature2
+      ]);
       
-      console.log("\n=== Setup ===");
-      console.log("Custody ID:", custodyId);
-      console.log("Initial PPM:", await subject.psymm.getPPM(custodyId));
+      console.log("Aggregated Public Key:", aggregatedPubKey);
+      console.log("Aggregated Signature:", aggregatedSignature);
       
-      // STEP 1: The key insight - initially, PPM[custodyId] = custodyId
-      // So the "leaf" we need to match is actually custodyId itself
+      // Set the block timestamp for verification
+      await ethers.provider.send("evm_setNextBlockTimestamp", [timestamp + 1]);
+      await ethers.provider.send("evm_mine", []);
       
-      // Create a leaf for custodyToAddress permission
+      // Get merkle proof for the aggregated key
+      // Since we've added two separate entries to the PPM (one for each party),
+      // we need to add a separate entry for the aggregated key
       
+      // First, we'll check if the PPM already has a corresponding action for our aggregated key
+      const ppmItems = ppmHelper.getPPM();
+      let proofIndex = -1;
       
-      // const addressLeaf = createLeaf(
-      //   "custodyToAddress",
-      //   chainId,
-      //   contractAddress,
-      //   0, // custodyState
-      //   addressEncodedParams,
-      //   pubKeyParity,
-      //   pubKeyX
-      // );
+      for (let i = 0; i < ppmItems.length; i++) {
+        const item = ppmItems[i];
+        const party = Array.isArray(item.party) ? item.party[0] : item.party;
+        
+        if (item.type === "custodyToAddress" && 
+            party.parity === aggregatedPubKey.parity && 
+            party.x === aggregatedPubKey.x) {
+          proofIndex = i;
+          break;
+        }
+      }
+      console.log("Proof Index:", proofIndex);
+      // If we didn't find a matching entry, add one for the aggregated key
+      // if (proofIndex === -1) {
+      //   ppmHelper.custodyToAddress(
+      //     subject.user2.address, // recipient
+      //     0, // state
+      //     aggregatedPubKey // The aggregated public key
+      //   );
+      //   // The index will be the last added item
+      //   proofIndex = ppmHelper.getPPM().length - 1;
+      // }
       
-      // Create our permission tree with the real actions we want to authorize
-      // const permissionTree = StandardMerkleTree.of([[addressLeaf]], ["bytes32"]);
-      // const permissionRoot = permissionTree.root;
+      const proof = ppmHelper.getMerkleProof(proofIndex);
+      console.log("Using merkle proof at index:", proofIndex);
+      console.log("Merkle proof length:", proof.length);
       
-      // console.log("Permission Tree Root:", permissionRoot);
-      
-      // STEP 2: First, we need to use the trick from the custodyToCustody test
-      // We use an empty merkle proof when PPM = custodyId
-      
-      // Create verification data for the initial updatePPM - with empty proof!
-      // const bootstrapVerificationData = {
-      //   id: custodyId,
-      //   state: 0,
-      //   timestamp: Math.floor(Date.now() / 1000),
-      //   pubKey: {
-      //     parity: pubKeyParity,
-      //     x: pubKeyX
-      //   },
-      //   sig: {
-      //     e: ethers.hexlify(ethers.randomBytes(32)),
-      //     s: ethers.hexlify(ethers.randomBytes(32))
-      //   },
-      //   merkleProof: [] // Critical: Empty proof when using custodyId as the root
-      // };
-      
-      console.log("\n=== Updating PPM ===");
-      
-      // Update the PPM to our permission tree root
-      // await subject.psymm.connect(subject.user1).updatePPM(
-      //   permissionRoot, // Set the PPM to our permission tree root
-      //   bootstrapVerificationData
-      // );
-      
-      // Verify PPM was updated correctly
-      const updatedPPM = await subject.psymm.getPPM(custodyId);
-      console.log("Updated PPM:", updatedPPM);
-      // console.log("Expected PPM (permission root):", permissionRoot);
-      // console.log("PPM set correctly:", updatedPPM === permissionRoot);
-
-      // STEP 3: Now we can perform the actual transfer using our permissionTree proof
-      console.log("\n=== Executing Transfer ===");
-      
-      // Create verification data for withdrawal - with proper Merkle proof
+      // Create verification data with aggregated signature and key
       const verificationData = {
         id: custodyId,
         state: 0,
-        timestamp: Math.floor(Date.now() / 1000),
-        pubKey: {
-          parity: pubKeyParity,
-          x: pubKeyX
-        },
-        sig: {
-          e: ethers.hexlify(ethers.randomBytes(32)),
-          s: ethers.hexlify(ethers.randomBytes(32))
-        },
-        merkleProof: proof // Use the proof from permission tree
+        timestamp: timestamp,
+        pubKey: aggregatedPubKey,  // Using the aggregated public key
+        sig: aggregatedSignature,  // Using the aggregated signature
+        merkleProof: proof
       };
       
-      console.log("Transfer Merkle Proof:", verificationData.merkleProof);
-
-      // Transfer from custody to address
-      const withdrawAmount = ethers.parseEther("5");
+      console.log("\nExecuting custodyToAddress with aggregated Schnorr signature...");
+      console.log("Verification Data:", JSON.stringify(verificationData, null, 2));
+      
+      // Execute custody to address with the aggregated signature
+      // Notice we're connecting with user1 (doesn't matter who executes it)
       await subject.psymm.connect(subject.user1).custodyToAddress(
-        await subject.usdc.getAddress(),
+        usdcAddress,
         subject.user2.address,
         withdrawAmount,
         verificationData
       );
-
-      // Verify balances
-      const custodyBalance = await subject.psymm.custodyBalances(
+      
+      // Check final balances
+      const finalCustodyBalance = await subject.psymm.custodyBalances(
         custodyId,
-        await subject.usdc.getAddress()
+        usdcAddress
       );
-      const userBalance = await subject.usdc.balanceOf(subject.user2.address);
+      const user2Balance = await subject.usdc.balanceOf(subject.user2.address);
       
       console.log("\n=== Results ===");
-      console.log("Custody Balance:", custodyBalance.toString());
-      console.log("User Balance:", userBalance.toString());
+      console.log("Final custody balance:", finalCustodyBalance.toString());
+      console.log("User2 balance:", user2Balance.toString());
       
-      expect(custodyBalance).to.equal(amount - withdrawAmount);
-      expect(userBalance).to.equal(ethers.parseEther("5"));
+      // Verify balances
+      expect(finalCustodyBalance).to.equal(amount - withdrawAmount);
+      expect(user2Balance).to.equal(withdrawAmount);
+      
+      console.log("Multi-party Schnorr signature verification successful!");
     });
   });
 
