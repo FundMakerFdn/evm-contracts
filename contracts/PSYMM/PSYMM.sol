@@ -11,6 +11,8 @@ import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "./VerificationUtils.sol";
 
+import "hardhat/console.sol";
+
 interface ISMAFactory {
     function deploySMA(bytes calldata data) external returns (address);
 }
@@ -90,7 +92,7 @@ contract PSYMM {
         uint256 amount,
         VerificationData calldata v
     ) external checkCustodyState(v.id, v.state) checkCustodyBalance(v.id, token, amount) checkExpiry(v.timestamp) checkNullifier(v.sig.e){
-
+        console.log("custodyToAddress");
         VerificationUtils.verifyLeaf(
             PPMs[v.id],
             v.merkleProof,
@@ -102,7 +104,8 @@ contract PSYMM {
             v.pubKey.parity,
             v.pubKey.x
         );
-
+        console.log("Custody done");
+        console.log("verifySchnorr");
         VerificationUtils.verifySchnorr(
             abi.encode(
                 v.timestamp,
@@ -115,7 +118,7 @@ contract PSYMM {
             v.pubKey,
             v.sig
         );
-
+        console.log("verifySchnorr done");
         if (withdrawReRoutings[v.id][destination] != address(0)){
             custodyBalances[v.id][token] -= amount;
             IERC20(token).safeTransfer(withdrawReRoutings[v.id][destination], amount);

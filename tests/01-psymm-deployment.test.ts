@@ -6,6 +6,8 @@ import { ethers } from "hardhat";
 import { PSYMM, MockERC20 } from "../typechain-types";
 import { StandardMerkleTree } from "@openzeppelin/merkle-tree";
 
+import { PPMHelper } from "./utils/ppmHelper";
+import { PPMBuilder } from "./utils/ppmBuilder";
 describe("PSYMM", function () {
   let subject: SubjectType;
 
@@ -234,6 +236,73 @@ describe("PSYMM", function () {
     });
 
     it("Should allow custody to address transfer", async function () {
+      const ppmBuilder = new PPMBuilder();
+
+
+      const chainId = await ethers.provider.getNetwork().then(n => n.chainId);
+      const contractAddress = await subject.psymm.getAddress();
+
+      const pubKeyX = ethers.hexlify(ethers.randomBytes(32));
+      const pubKeyParity = 0;
+
+      const ppmHelper = new PPMHelper(chainId, contractAddress);
+      ppmHelper.custodyToAddress(subject.user2.address, 0, [
+        {
+          parity: pubKeyParity,
+          x: pubKeyX
+        },
+      ]);
+
+      // ppmBuilderV2.custodyToAddress(subject.user1.address, 0, [
+      //   {
+      //     parity: pubKeyParity,
+      //     x: pubKeyX
+      //   },
+      // ]);
+
+      console.log("Custody ID:", ppmHelper.getCustodyID());
+      console.log("PPMs ID:", ppmHelper.getPPM());
+      const proof = ppmHelper.getMerkleProof(0);
+
+      console.log("Proof:", proof);
+      const custodyId = ppmHelper.getCustodyID()
+
+      // const addressEncodedParams = ethers.AbiCoder.defaultAbiCoder().encode(
+      //   ["address"],
+      //   [subject.user2.address]
+      // );
+
+
+    // ppmBuilder.addItem({
+    //   type: "custodyToAddress",
+    //   chainId: chainId,
+    //   pSymm: contractAddress,
+    //   state: 0,
+    //   args: {
+    //     receiver: subject.user2.address
+    //   },
+    //   party: [
+    //     {
+    //       parity: pubKeyParity,
+    //       x: pubKeyX
+    //     },
+    //   ],
+    // });
+
+    // const custodyId = ppmBuilder.buildTreeRoot();
+
+    console.log("Merkle root:", custodyId);
+
+      // const ppm = ppmBuilder.addItem({
+      //   type: "custodyToAddress",
+      //   chainId: await ethers.provider.getNetwork().then(n => n.chainId),
+      //   pSymm: await subject.psymm.getAddress(),
+      //   state: 0,
+      //   args: {
+      //     receiver: subject.user2.address
+      //   }
+      // });
+
       // First deposit to custody
       await subject.usdc.connect(subject.user1).approve(
         await subject.psymm.getAddress(),
@@ -246,47 +315,75 @@ describe("PSYMM", function () {
       );
 
       // Get the chain ID for the test network
-      const chainId = await ethers.provider.getNetwork().then(n => n.chainId);
       
-      // Get the PPM value
-      await subject.psymm.getPPM(custodyId); // This will be the Merkle root
+      
+      // Create public key values
+      // const pubKeyX = ethers.hexlify(ethers.randomBytes(32));
+      // const pubKeyParity = 0;
+      
+      console.log("\n=== Setup ===");
+      console.log("Custody ID:", custodyId);
+      console.log("Initial PPM:", await subject.psymm.getPPM(custodyId));
+      
+      // STEP 1: The key insight - initially, PPM[custodyId] = custodyId
+      // So the "leaf" we need to match is actually custodyId itself
+      
+      // Create a leaf for custodyToAddress permission
+      
+      
+      // const addressLeaf = createLeaf(
+      //   "custodyToAddress",
+      //   chainId,
+      //   contractAddress,
+      //   0, // custodyState
+      //   addressEncodedParams,
+      //   pubKeyParity,
+      //   pubKeyX
+      // );
+      
+      // Create our permission tree with the real actions we want to authorize
+      // const permissionTree = StandardMerkleTree.of([[addressLeaf]], ["bytes32"]);
+      // const permissionRoot = permissionTree.root;
+      
+      // console.log("Permission Tree Root:", permissionRoot);
+      
+      // STEP 2: First, we need to use the trick from the custodyToCustody test
+      // We use an empty merkle proof when PPM = custodyId
+      
+      // Create verification data for the initial updatePPM - with empty proof!
+      // const bootstrapVerificationData = {
+      //   id: custodyId,
+      //   state: 0,
+      //   timestamp: Math.floor(Date.now() / 1000),
+      //   pubKey: {
+      //     parity: pubKeyParity,
+      //     x: pubKeyX
+      //   },
+      //   sig: {
+      //     e: ethers.hexlify(ethers.randomBytes(32)),
+      //     s: ethers.hexlify(ethers.randomBytes(32))
+      //   },
+      //   merkleProof: [] // Critical: Empty proof when using custodyId as the root
+      // };
+      
+      console.log("\n=== Updating PPM ===");
+      
+      // Update the PPM to our permission tree root
+      // await subject.psymm.connect(subject.user1).updatePPM(
+      //   permissionRoot, // Set the PPM to our permission tree root
+      //   bootstrapVerificationData
+      // );
+      
+      // Verify PPM was updated correctly
+      const updatedPPM = await subject.psymm.getPPM(custodyId);
+      console.log("Updated PPM:", updatedPPM);
+      // console.log("Expected PPM (permission root):", permissionRoot);
+      // console.log("PPM set correctly:", updatedPPM === permissionRoot);
 
-      // Create a leaf for the merkle tree
-      const pubKeyX = ethers.hexlify(ethers.randomBytes(32));
-      const pubKeyParity = 0;
+      // STEP 3: Now we can perform the actual transfer using our permissionTree proof
+      console.log("\n=== Executing Transfer ===");
       
-      const encodedParams = ethers.AbiCoder.defaultAbiCoder().encode(
-        ["address"],
-        [subject.user2.address]
-      );
-      
-      const leaf = createLeaf(
-        "custodyToAddress",
-        chainId,
-        await subject.psymm.getAddress(),
-        0, // custodyState
-        encodedParams,
-        pubKeyParity,
-        pubKeyX
-      );
-
-      // For testing, we'll create a simple tree with just our leaf
-      const tree = StandardMerkleTree.of([[leaf]], ["bytes32"]);
-      const root = tree.root;
-      
-      // Set the PPM to our tree root through addressToCustody (which sets PPM)
-      await subject.usdc.mint(subject.user1.address, ethers.parseEther("1"));
-      await subject.usdc.connect(subject.user1).approve(
-        await subject.psymm.getAddress(),
-        ethers.parseEther("1")
-      );
-      await subject.psymm.connect(subject.user1).addressToCustody(
-        custodyId,
-        await subject.usdc.getAddress(),
-        ethers.parseEther("1")
-      );
-
-      // Create verification data with our proof
+      // Create verification data for withdrawal - with proper Merkle proof
       const verificationData = {
         id: custodyId,
         state: 0,
@@ -299,8 +396,10 @@ describe("PSYMM", function () {
           e: ethers.hexlify(ethers.randomBytes(32)),
           s: ethers.hexlify(ethers.randomBytes(32))
         },
-        merkleProof: tree.getProof(0)
+        merkleProof: proof // Use the proof from permission tree
       };
+      
+      console.log("Transfer Merkle Proof:", verificationData.merkleProof);
 
       // Transfer from custody to address
       const withdrawAmount = ethers.parseEther("5");
@@ -318,7 +417,11 @@ describe("PSYMM", function () {
       );
       const userBalance = await subject.usdc.balanceOf(subject.user2.address);
       
-      expect(custodyBalance).to.equal(amount - withdrawAmount + ethers.parseEther("1")); // We added 1 more ETH for PPM update
+      console.log("\n=== Results ===");
+      console.log("Custody Balance:", custodyBalance.toString());
+      console.log("User Balance:", userBalance.toString());
+      
+      expect(custodyBalance).to.equal(amount - withdrawAmount);
       expect(userBalance).to.equal(ethers.parseEther("5"));
     });
   });
@@ -354,43 +457,57 @@ describe("PSYMM", function () {
 
       // Get the chain ID for the test network
       const chainId = await ethers.provider.getNetwork().then(n => n.chainId);
+      const contractAddress = await subject.psymm.getAddress();
       
-      // Create a leaf for the merkle tree for deploySMA
+      // Create public key values
       const pubKeyX = ethers.hexlify(ethers.randomBytes(32));
       const pubKeyParity = 0;
       
-      const encodedParams = ethers.AbiCoder.defaultAbiCoder().encode(
+      console.log("\n=== Setup ===");
+      console.log("Custody ID:", custodyId);
+      console.log("Initial PPM:", await subject.psymm.getPPM(custodyId));
+      
+      // Create leaves for our permissions tree
+      const deploySMAParams = ethers.AbiCoder.defaultAbiCoder().encode(
         ["string", "address", "bytes"],
         [smaType, factoryAddress, data]
       );
       
-      const leaf = createLeaf(
+      const deploySMALeaf = createLeaf(
         "deploySMA",
         chainId,
-        await subject.psymm.getAddress(),
+        contractAddress,
         0, // custodyState
-        encodedParams,
+        deploySMAParams,
         pubKeyParity,
         pubKeyX
       );
-
-      // For testing, we'll create a simple tree with just our leaf
-      const tree = StandardMerkleTree.of([[leaf]], ["bytes32"]);
-      const root = tree.root;
       
-      // Set the PPM to our tree root through addressToCustody (which sets PPM)
-      await subject.usdc.mint(subject.user1.address, ethers.parseEther("1"));
-      await subject.usdc.connect(subject.user1).approve(
-        await subject.psymm.getAddress(),
-        ethers.parseEther("1")
+      const custodyToSMAParams = ethers.AbiCoder.defaultAbiCoder().encode(
+        ["address", "address"],
+        [await mockSMA.getAddress(), await subject.usdc.getAddress()]
       );
-      await subject.psymm.connect(subject.user1).addressToCustody(
-        custodyId,
-        await subject.usdc.getAddress(),
-        ethers.parseEther("1")
+      
+      const custodyToSMALeaf = createLeaf(
+        "custodyToSMA",
+        chainId,
+        contractAddress,
+        0, // custodyState
+        custodyToSMAParams,
+        pubKeyParity,
+        pubKeyX
       );
-
-      const verificationData = {
+      
+      // Create our permission tree with both operations
+      const permissionTree = StandardMerkleTree.of(
+        [[deploySMALeaf], [custodyToSMALeaf]], 
+        ["bytes32"]
+      );
+      
+      console.log("Permission Tree Root:", permissionTree.root);
+      
+      // STEP 1: First update the PPM using an empty proof (since initially PPM = custodyId)
+      const updatePPMData = {
         id: custodyId,
         state: 0,
         timestamp: Math.floor(Date.now() / 1000),
@@ -402,50 +519,47 @@ describe("PSYMM", function () {
           e: ethers.hexlify(ethers.randomBytes(32)),
           s: ethers.hexlify(ethers.randomBytes(32))
         },
-        merkleProof: tree.getProof(0)
+        merkleProof: [] // Empty proof for initial PPM update
       };
-
+      
+      console.log("\n=== Updating PPM ===");
+      
+      // Update the PPM to our permission tree root
+      await subject.psymm.connect(subject.user1).updatePPM(
+        permissionTree.root,
+        updatePPMData
+      );
+      
+      // STEP 2: Deploy SMA using proof from our permission tree
+      console.log("\n=== Deploying SMA ===");
+      
+      const deploySMAData = {
+        id: custodyId,
+        state: 0,
+        timestamp: Math.floor(Date.now() / 1000),
+        pubKey: {
+          parity: pubKeyParity,
+          x: pubKeyX
+        },
+        sig: {
+          e: ethers.hexlify(ethers.randomBytes(32)),
+          s: ethers.hexlify(ethers.randomBytes(32))
+        },
+        merkleProof: permissionTree.getProof(0) // Use proof for deploySMA leaf
+      };
+      
       // Deploy SMA
       await subject.psymm.connect(subject.user1).deploySMA(
         smaType,
         factoryAddress,
         data,
-        verificationData
-      );
-
-      // Now create a leaf for custodyToSMA
-      const smaEncodedParams = ethers.AbiCoder.defaultAbiCoder().encode(
-        ["address", "address"],
-        [await mockSMA.getAddress(), await subject.usdc.getAddress()]
+        deploySMAData
       );
       
-      const smaLeaf = createLeaf(
-        "custodyToSMA",
-        chainId,
-        await subject.psymm.getAddress(),
-        0, // custodyState
-        smaEncodedParams,
-        pubKeyParity,
-        pubKeyX
-      );
-
-      // Create a new tree for the SMA transfer
-      const smaTree = StandardMerkleTree.of([[smaLeaf]], ["bytes32"]);
+      // STEP 3: Transfer to SMA using proof from our permission tree
+      console.log("\n=== Transferring to SMA ===");
       
-      // Set the PPM again to update the Merkle root
-      await subject.usdc.mint(subject.user1.address, ethers.parseEther("1"));
-      await subject.usdc.connect(subject.user1).approve(
-        await subject.psymm.getAddress(),
-        ethers.parseEther("1")
-      );
-      await subject.psymm.connect(subject.user1).addressToCustody(
-        custodyId,
-        await subject.usdc.getAddress(),
-        ethers.parseEther("1")
-      );
-
-      // Create verification data for transfer
-      const transferVerificationData = {
+      const transferData = {
         id: custodyId,
         state: 0,
         timestamp: Math.floor(Date.now() / 1000),
@@ -457,15 +571,15 @@ describe("PSYMM", function () {
           e: ethers.hexlify(ethers.randomBytes(32)),
           s: ethers.hexlify(ethers.randomBytes(32))
         },
-        merkleProof: smaTree.getProof(0)
+        merkleProof: permissionTree.getProof(1) // Use proof for custodyToSMA leaf
       };
-
+      
       // Transfer to SMA
       await subject.psymm.connect(subject.user1).custodyToSMA(
         await subject.usdc.getAddress(),
         await mockSMA.getAddress(),
         amount,
-        transferVerificationData
+        transferData
       );
 
       // Verify balances
@@ -475,7 +589,11 @@ describe("PSYMM", function () {
       );
       const smaBalance = await subject.usdc.balanceOf(await mockSMA.getAddress());
       
-      expect(custodyBalance).to.equal(ethers.parseEther("2")); // We added 2 more ETH for PPM updates
+      console.log("\n=== Results ===");
+      console.log("Custody Balance:", custodyBalance.toString());
+      console.log("SMA Balance:", smaBalance.toString());
+      
+      expect(custodyBalance).to.equal(0);
       expect(smaBalance).to.equal(amount);
     });
   });
