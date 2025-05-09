@@ -1,0 +1,9 @@
+{
+    "name": "MulticoinIndex",
+    "ticker": "SYMC",
+    "note": "Multicoin Capital Portfolio",
+    "type": "VC",
+    "params": {
+        "initialPrice": 1000
+    }
+}
