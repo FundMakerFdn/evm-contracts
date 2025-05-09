@@ -13,7 +13,7 @@ import {
 import { StandardMerkleTree } from "@openzeppelin/merkle-tree";
 
 // Define types for the PPM items
-type PPMItemType = "deploySMA" | "callSMA" | "custodyToAddress" | "custodyToSMA" | "changeCustodyState";
+type PPMItemType = "deploySMA" | "callSMA" | "custodyToAddress" | "custodyToSMA" | "changeCustodyState" | "custodyToCustody" | "updatePPM";
 
 interface Party {
   parity: number;
@@ -47,10 +47,17 @@ class PPMHelper {
       custodyToAddress: "address receiver",
       custodyToSMA: "string smaType,address token",
       changeCustodyState: "uint8 newState",
+      custodyToCustody: "bytes32 receiverId",
+      updatePPM: "" // No parameters
     };
   }
 
   private encodeArgs(type: PPMItemType, args: Record<string, any>): Hex {
+    // Special case for empty parameters (like updatePPM)
+    if (this.argsToTypes[type] === "") {
+      return "0x" as Hex;
+    }
+    
     const parsed = parseAbiParameters(this.argsToTypes[type]).slice(
       0,
       Object.keys(args).length
@@ -173,7 +180,7 @@ class PPMHelper {
 
   custodyToSMA(
     smaType: string,
-    token: Address,
+    token: Address | string,
     state: number,
     party: Party | Party[]
   ): number {
@@ -193,6 +200,31 @@ class PPMHelper {
     return this.addItem(
       "changeCustodyState",
       { newState },
+      state,
+      party
+    );
+  }
+
+  custodyToCustody(
+    receiverId: string | Hex,
+    state: number,
+    party: Party | Party[]
+  ): number {
+    return this.addItem(
+      "custodyToCustody",
+      { receiverId },
+      state,
+      party
+    );
+  }
+
+  updatePPM(
+    state: number,
+    party: Party | Party[]
+  ): number {
+    return this.addItem(
+      "updatePPM",
+      {}, // No parameters for updatePPM
       state,
       party
     );
