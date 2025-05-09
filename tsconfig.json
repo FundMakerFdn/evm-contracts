@@ -6,6 +6,12 @@
     "forceConsistentCasingInFileNames": true,
     "strict": true,
     "skipLibCheck": true,
-    "resolveJsonModule": true
-  }
+    "resolveJsonModule": true,
+    "baseUrl": ".",
+    "paths": {
+      "*": ["*", "typechain-types/*"]
+    },
+    "typeRoots": ["./node_modules/@types", "./typechain-types"]
+  },
+  "include": ["./test", "./typechain-types"]
 }
