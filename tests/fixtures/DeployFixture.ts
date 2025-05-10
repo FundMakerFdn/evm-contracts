@@ -1,5 +1,5 @@
 import { ethers } from "hardhat";
-import { PSYMM, MockERC20 } from "../../typechain-types";
+import { PSYMM, MockERC20, IndexRegistry, IndexFactory } from "../../typechain-types";
 import { SignerWithAddress } from "@nomicfoundation/hardhat-ethers/signers";
 
 export interface SubjectType {
@@ -10,6 +10,8 @@ export interface SubjectType {
   psymm: PSYMM;
   usdc: MockERC20;
   usde: MockERC20;
+  indexRegistry: IndexRegistry;
+  indexFactory: IndexFactory;
 }
 
 export const deployFixture = async (): Promise<SubjectType> => {
@@ -33,6 +35,18 @@ export const deployFixture = async (): Promise<SubjectType> => {
   subject.psymm = psymm;
   subject.usdc = usdc;
   subject.usde = usde;
+
+  // Deploy IndexRegistry first
+  const IndexRegistry = await ethers.getContractFactory("IndexRegistry");
+  subject.indexRegistry = await IndexRegistry.deploy();
+  await subject.indexRegistry.waitForDeployment();
+
+  // Deploy IndexFactory with PSYMM address
+  const IndexFactory = await ethers.getContractFactory("IndexFactory");
+  subject.indexFactory = await IndexFactory.deploy(
+    await subject.psymm.getAddress()
+  );
+  await subject.indexFactory.waitForDeployment();
 
   return subject;
 

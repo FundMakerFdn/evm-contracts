@@ -9,9 +9,8 @@ import { StandardMerkleTree } from "@openzeppelin/merkle-tree";
 import { ethers } from "hardhat";
 
 import { PPMHelper } from "./utils/ppmHelper";
-import { PPMBuilder } from "./utils/ppmBuilder";
 import { SchnorrHelper } from "./utils/schnorrHelper";
-
+import { getSinglePartyCustodyId, createLeaf } from "./utils/index";
 describe("PSYMM", function () {
   let subject: SubjectType;
 
@@ -19,22 +18,7 @@ describe("PSYMM", function () {
     subject = await loadFixture(deployFixture);
   });
 
-  function createLeaf(action: string, chainId: bigint, contractAddress: string, custodyState: number, encodedParams: string, pubKeyParity: number, pubKeyX: string): string {
-    // Mimic the keccak256 hashing from verifyLeaf
-    return ethers.keccak256(
-      ethers.solidityPacked(
-        ["bytes32"],
-        [
-          ethers.keccak256(
-            ethers.AbiCoder.defaultAbiCoder().encode(
-              ["string", "uint256", "address", "uint8", "bytes", "uint8", "bytes32"],
-              [action, chainId, contractAddress, custodyState, encodedParams, pubKeyParity, pubKeyX]
-            )
-          ),
-        ]
-      )
-    );
-  }
+
 
   describe("Custody Operations", function () {
     const custodyId = ethers.id("test-custody");
@@ -80,8 +64,6 @@ describe("PSYMM", function () {
       // Step 1: Initial setup - deposit tokens to custody
       await subject.usdc.connect(subject.user1).approve(await subject.psymm.getAddress(), amount);
       await subject.psymm.connect(subject.user1).addressToCustody(custodyId, await subject.usdc.getAddress(), amount);
-
-      console.log("Source custody balance:", (await subject.psymm.custodyBalances(custodyId, await subject.usdc.getAddress())).toString());
 
       // Step 2: Create verification data for the transfer
       // Set up caller address as the public key (using Schnorr verification shortcut)
@@ -176,7 +158,6 @@ describe("PSYMM", function () {
     });
 
     it("Should allow custody to address transfer", async function () {
-      console.log("\n=== Multi-Party Custody Transfer Test with Schnorr Signatures ===");
 
       // Get chain ID and contract address
       const chainId = await ethers.provider.getNetwork().then((n) => n.chainId);
@@ -185,15 +166,10 @@ describe("PSYMM", function () {
       // Get token address
       const usdcAddress = await subject.usdc.getAddress();
 
-      console.log("Setting up Schnorr key pairs...");
 
       // Generate real Schnorr key pairs (with parity=27) instead of address-based signers
       const keyPair1 = SchnorrHelper.generateKeyPair();
       const keyPair2 = SchnorrHelper.generateKeyPair();
-
-      console.log("Key Pair 1 - parity:", keyPair1.publicKey.parity, "x:", keyPair1.publicKey.x);
-      console.log("Key Pair 2 - parity:", keyPair2.publicKey.parity, "x:", keyPair2.publicKey.x);
-
       // Create the PPM Helper
       const ppmHelper = new PPMHelper(Number(chainId), contractAddress as `0x${string}`);
 
@@ -214,10 +190,7 @@ describe("PSYMM", function () {
 
       // Get custody ID from PPM helper
       const custodyId = ppmHelper.getCustodyID();
-      console.log("Custody ID:", custodyId);
 
-      // Deposit funds to custody
-      console.log("\nDepositing funds to custody...");
       // Mint tokens to the user first
       await subject.usdc.mint(subject.user1.address, amount);
       await subject.usdc.connect(subject.user1).approve(contractAddress, amount);
@@ -225,7 +198,6 @@ describe("PSYMM", function () {
 
       // Verify initial custody balance
       const initialBalance = await subject.psymm.custodyBalances(custodyId, usdcAddress);
-      console.log("Initial custody balance:", initialBalance.toString());
 
       // Create message to sign
       const timestamp = Math.floor(Date.now() / 1000) + 3600; // 1 hour in the future
@@ -234,21 +206,14 @@ describe("PSYMM", function () {
       // Create the message to sign for custodyToAddress
       const message = SchnorrHelper.createCustodyToAddressMessage(timestamp, custodyId, usdcAddress, subject.user2.address, withdrawAmount);
 
-      console.log("\nCreating multi-party Schnorr signatures...");
 
       // Both parties sign the message
       const signature1 = SchnorrHelper.sign(message, keyPair1);
       const signature2 = SchnorrHelper.sign(message, keyPair2);
 
-      console.log("Signature 1:", signature1);
-      console.log("Signature 2:", signature2);
-
       // Combine parties' public keys and signatures (for true multi-sig)
 
       const aggregatedSignature = SchnorrHelper.aggregateSignatures([signature1, signature2]);
-
-      console.log("Aggregated Public Key:", aggregatedPubKey);
-      console.log("Aggregated Signature:", aggregatedSignature);
 
       // Set the block timestamp for verification
       await ethers.provider.send("evm_setNextBlockTimestamp", [timestamp + 1]);
@@ -271,7 +236,6 @@ describe("PSYMM", function () {
           break;
         }
       }
-      console.log("Proof Index:", proofIndex);
       // If we didn't find a matching entry, add one for the aggregated key
       // if (proofIndex === -1) {
       //   ppmHelper.custodyToAddress(
@@ -284,8 +248,6 @@ describe("PSYMM", function () {
       // }
 
       const proof = ppmHelper.getMerkleProof(proofIndex);
-      console.log("Using merkle proof at index:", proofIndex);
-      console.log("Merkle proof length:", proof.length);
 
       // Create verification data with aggregated signature and key
       const verificationData = {
@@ -297,8 +259,6 @@ describe("PSYMM", function () {
         merkleProof: proof,
       };
 
-      console.log("\nExecuting custodyToAddress with aggregated Schnorr signature...");
-      console.log("Verification Data:", JSON.stringify(verificationData, null, 2));
 
       // Execute custody to address with the aggregated signature
       // Notice we're connecting with user1 (doesn't matter who executes it)
@@ -308,15 +268,10 @@ describe("PSYMM", function () {
       const finalCustodyBalance = await subject.psymm.custodyBalances(custodyId, usdcAddress);
       const user2Balance = await subject.usdc.balanceOf(subject.user2.address);
 
-      console.log("\n=== Results ===");
-      console.log("Final custody balance:", finalCustodyBalance.toString());
-      console.log("User2 balance:", user2Balance.toString());
-
       // Verify balances
       expect(finalCustodyBalance).to.equal(amount - withdrawAmount);
       expect(user2Balance).to.equal(withdrawAmount);
 
-      console.log("Multi-party Schnorr signature verification successful!");
     });
 
     it("Should verify initial PPM is set to custody ID", async function () {
@@ -336,8 +291,6 @@ describe("PSYMM", function () {
       const ppmValue = await subject.psymm.getPPM(testCustodyId);
 
       // Verify PPM is set to custody ID
-      console.log("Custody ID:", testCustodyId);
-      console.log("Initial PPM Value:", ppmValue);
       expect(ppmValue).to.equal(testCustodyId, "Initial PPM should be set to the custody ID");
     });
 
@@ -409,18 +362,17 @@ describe("PSYMM", function () {
 
       // Get current block timestamp
       const currentBlockTimestamp = await getLatestBlockTimestamp();
-      const futureTimestamp = currentBlockTimestamp + 1000;
-
+      const futureTimestamp = currentBlockTimestamp + 3600;
       // Set blockchain to future time
-      await ethers.provider.send("evm_setNextBlockTimestamp", [futureTimestamp]);
-      await ethers.provider.send("evm_mine", []);
+      // await ethers.provider.send("evm_setNextBlockTimestamp", [futureTimestamp]);
+      // await ethers.provider.send("evm_mine", []);
 
       // Now create an expired timestamp for our test
-      const expiredTimestamp = futureTimestamp - 100; // Earlier than futureTimestamp
+      // const expiredTimestamp = futureTimestamp - 100; // Earlier than futureTimestamp
       const verificationData = {
         id: custodyId,
         state: 0,
-        timestamp: expiredTimestamp,
+        timestamp: futureTimestamp,
         pubKey: {
           parity: 0,
           x: ethers.zeroPadValue(subject.user1.address, 32),
@@ -444,88 +396,65 @@ describe("PSYMM", function () {
     });
 
     it("Should fail when using the same nullifier twice", async function () {
-      // Set up custody with tokens
-      await subject.usdc.connect(subject.user1).approve(await subject.psymm.getAddress(), amount);
-      await subject.psymm.connect(subject.user1).addressToCustody(custodyId, await subject.usdc.getAddress(), amount);
 
-      // Chain ID and contract address for verification
+      // Get chain ID and contract address
       const chainId = await ethers.provider.getNetwork().then((n) => n.chainId);
       const contractAddress = await subject.psymm.getAddress();
 
-      // Public key using address verification shortcut
-      const pubKeyParity = 0;
-      const pubKeyX = ethers.zeroPadValue(subject.user1.address, 32);
+      // Generate real Schnorr key pairs (with parity=27) instead of address-based signers
+      const keyPair1 = SchnorrHelper.generateKeyPair();
+      const keyPair2 = SchnorrHelper.generateKeyPair();
+      // Create the PPM Helper
+      const ppmHelper = new PPMHelper(Number(chainId), contractAddress as `0x${string}`);
 
-      // Create leaf for custodyToAddress permission
-      const custodyToAddressParams = ethers.AbiCoder.defaultAbiCoder().encode(
-        ["address"], 
-        [subject.user2.address]
+      const aggregatedPubKey = SchnorrHelper.aggregatePublicKeys([keyPair1.publicKey, keyPair2.publicKey]);
+
+      // Create public key values - use user1's address as the public key for easy verification
+      const pubKeyParity = 0; // Using address verification mode
+      const pubKeyX = ethers.zeroPadValue(subject.user1.address, 32); // Use user1's address
+
+
+      // Add custody to address action with both parties required
+      ppmHelper.custodyToAddress(
+        subject.user2.address, // recipient
+        0, // state
+        [{
+          parity: pubKeyParity,
+          x: pubKeyX,
+        }] // both parties required
       );
-      
-      const custodyToAddressLeaf = createLeaf(
-        "custodyToAddress",
-        chainId,
-        contractAddress,
-        0,
-        custodyToAddressParams,
-        pubKeyParity,
-        pubKeyX
-      );
 
-      
+      // Get custody ID from PPM helper
+      const custodyId = ppmHelper.getCustodyID();
 
-      // Create a tree with just the leaf
-      const permissionTree = StandardMerkleTree.of([[custodyToAddressLeaf]], ["bytes32"]);
+
+      // Set up custody with tokens
+      await subject.usdc.connect(subject.user1).approve(await subject.psymm.getAddress(), amount);
+      await subject.psymm.connect(subject.user1).addressToCustody(custodyId, await subject.usdc.getAddress(), amount);
       
       // Get current block timestamp
       const currentBlockTimestamp = await getLatestBlockTimestamp();
       const baseTimestamp = currentBlockTimestamp + 2000;
       
-      // Create a verification data to update PPM
-      const updatePPMData = {
-        id: custodyId,
-        state: 0,
-        timestamp: baseTimestamp,
-        pubKey: {
-          parity: pubKeyParity,
-          x: pubKeyX,
-        },
-        sig: {
-          e: ethers.hexlify(ethers.randomBytes(32)), // Different nullifier for updatePPM
-          s: ethers.hexlify(ethers.randomBytes(32)),
-        },
-        merkleProof: [], // Empty proof for initial PPM
-      };
-      
-      // Set blockchain to future time
-      await ethers.provider.send("evm_setNextBlockTimestamp", [baseTimestamp + 10]);
-      await ethers.provider.send("evm_mine", []);
-      
-      // Update the PPM to our leaf/tree root
-      await subject.psymm.connect(subject.user1).updatePPM(permissionTree.root, updatePPMData);
-
-      // Set up future timestamp and consistent signature (same nullifier)
-      const sigE = ethers.hexlify(ethers.randomBytes(32)); // This becomes the nullifier
-      const transferTimestamp = baseTimestamp + 100; // Later than the updatePPM timestamp
       
       // Verification data for the transfer using the same nullifier twice
       const verificationData = {
         id: custodyId,
         state: 0,
-        timestamp: transferTimestamp,
+        timestamp: currentBlockTimestamp,
         pubKey: {
           parity: pubKeyParity,
           x: pubKeyX,
         },
         sig: {
-          e: sigE, // Reuse the same signature/nullifier
+          e: ethers.hexlify(ethers.randomBytes(32)), // Reuse the same signature/nullifier
           s: ethers.hexlify(ethers.randomBytes(32)),
         },
-        merkleProof: permissionTree.getProof(0), // Use the proof from the permission tree
+        merkleProof: [], // Use the proof from the permission tree
       };
 
       // Create test environment
-      await ethers.provider.send("evm_setNextBlockTimestamp", [transferTimestamp + 1]);
+      await ethers.provider.send("evm_setNextBlockTimestamp", [currentBlockTimestamp + 1]);
       await ethers.provider.send("evm_mine", []);
 
       // First transfer should succeed
@@ -548,76 +477,22 @@ describe("PSYMM", function () {
     });
 
     it("Should update custody state and reject operations with incorrect state", async function () {
+
+      const { custodyId, ppmHelper, pubKeyParity, pubKeyX } = await getSinglePartyCustodyId(subject);
       // Set up custody with tokens
       await subject.usdc.connect(subject.user1).approve(await subject.psymm.getAddress(), amount);
       await subject.psymm.connect(subject.user1).addressToCustody(custodyId, await subject.usdc.getAddress(), amount);
 
-      // Get chain ID and contract address
-      const chainId = await ethers.provider.getNetwork().then((n) => n.chainId);
-      const contractAddress = await subject.psymm.getAddress();
-
-      // Create public key values - use user1's address as the public key for verification
-      const pubKeyParity = 0;
-      const pubKeyX = ethers.zeroPadValue(subject.user1.address, 32);
 
       // Create leaf for changeCustodyState
       const newState = 1; // Change to state 1
-      const changeCustodyStateParams = ethers.AbiCoder.defaultAbiCoder().encode(["uint8"], [newState]);
-      
-      const changeCustodyStateLeaf = createLeaf(
-        "changeCustodyState",
-        chainId,
-        contractAddress,
-        0, // current state
-        changeCustodyStateParams,
-        pubKeyParity,
-        pubKeyX
-      );
-
-      // Also create a custodyToAddress leaf for later testing
-      const custodyToAddressParams = ethers.AbiCoder.defaultAbiCoder().encode(
-        ["address"], 
-        [subject.user2.address]
-      );
-      
-      const custodyToAddressLeaf = createLeaf(
-        "custodyToAddress",
-        chainId,
-        contractAddress,
-        0, // state 0, which will be invalid after state change
-        custodyToAddressParams,
-        pubKeyParity,
-        pubKeyX
-      );
-
-      // Create a tree with both leaves
-      const permissionTree = StandardMerkleTree.of([
-        [changeCustodyStateLeaf],
-        [custodyToAddressLeaf]
-      ], ["bytes32"]);
-
-      // Create updatePPM leaf to set up permissions
-      const updatePPMLeaf = createLeaf(
-        "updatePPM",
-        chainId,
-        contractAddress,
-        0,
-        ethers.AbiCoder.defaultAbiCoder().encode([], []),
-        pubKeyParity,
-        pubKeyX
-      );
-      
-      // Setup initial tree with updatePPM permission
-      const initialTree = StandardMerkleTree.of([[updatePPMLeaf]], ["bytes32"]);
-      
-      // Get current block timestamp
-      const currentBlockTimestamp = await getLatestBlockTimestamp();
-      const baseTimestamp = currentBlockTimestamp + 3000;
-      
-      // Update PPM to the initial tree
-      const initialUpdateData = {
+      // const changeCustodyStateParams = ethers.AbiCoder.defaultAbiCoder().encode(["uint8"], [newState]);
+      const baseTimestamp = await getLatestBlockTimestamp();
+      // Set up timestamp and signature for updateCustodyState
+      // const stateChangeTimestamp = baseTimestamp ;
+      const verificationData = {
         id: custodyId,
-        state: 0,
+        state: 0, // Current state
         timestamp: baseTimestamp,
         pubKey: {
           parity: pubKeyParity,
@@ -627,58 +502,16 @@ describe("PSYMM", function () {
           e: ethers.hexlify(ethers.randomBytes(32)),
           s: ethers.hexlify(ethers.randomBytes(32)),
         },
-        merkleProof: [], // Empty proof since initial PPM = custodyId
-      };
-      
-      // Set blockchain to future time
-      await ethers.provider.send("evm_setNextBlockTimestamp", [baseTimestamp + 1]);
-      await ethers.provider.send("evm_mine", []);
-      
-      // Update the PPM to allow updatePPM operation
-      await subject.psymm.connect(subject.user1).updatePPM(initialTree.root, initialUpdateData);
-      
-      // Now update PPM again to permission tree
-      const updateToPermissionData = {
-        id: custodyId,
-        state: 0,
-        timestamp: baseTimestamp + 100,
-        pubKey: {
+        merkleProof: ppmHelper.getMerkleProofByTypeAndArgs('changeCustodyState', {
+          newState: 1,
+        }, 0, [{
           parity: pubKeyParity,
           x: pubKeyX,
-        },
-        sig: {
-          e: ethers.hexlify(ethers.randomBytes(32)),
-          s: ethers.hexlify(ethers.randomBytes(32)),
-        },
-        merkleProof: initialTree.getProof(0), // Proof from initial tree
-      };
-      
-      // Set blockchain to future time
-      await ethers.provider.send("evm_setNextBlockTimestamp", [baseTimestamp + 101]);
-      await ethers.provider.send("evm_mine", []);
-      
-      // Update PPM to allow state change operations
-      await subject.psymm.connect(subject.user1).updatePPM(permissionTree.root, updateToPermissionData);
-
-      // Set up timestamp and signature for updateCustodyState
-      const stateChangeTimestamp = baseTimestamp + 200;
-      const verificationData = {
-        id: custodyId,
-        state: 0, // Current state
-        timestamp: stateChangeTimestamp,
-        pubKey: {
-          parity: pubKeyParity,
-          x: pubKeyX,
-        },
-        sig: {
-          e: ethers.hexlify(ethers.randomBytes(32)),
-          s: ethers.hexlify(ethers.randomBytes(32)),
-        },
-        merkleProof: permissionTree.getProof(0), // Use proof for changeCustodyState leaf
+        }])
       };
 
       // Create test environment for timestamp
-      await ethers.provider.send("evm_setNextBlockTimestamp", [stateChangeTimestamp + 1]);
+      await ethers.provider.send("evm_setNextBlockTimestamp", [baseTimestamp + 1]);
       await ethers.provider.send("evm_mine", []);
 
       // Update the custody state
@@ -688,11 +521,13 @@ describe("PSYMM", function () {
       const updatedState = await subject.psymm.getCustodyState(custodyId);
       expect(updatedState).to.equal(newState, "Custody state should be updated");
 
+      
+
       // Create a new verification data for custodyToAddress with incorrect state
       const transferData = {
         id: custodyId,
         state: 0, // Old state (incorrect)
-        timestamp: stateChangeTimestamp + 10,
+        timestamp: baseTimestamp,
         pubKey: {
           parity: pubKeyParity,
           x: pubKeyX,
@@ -701,14 +536,14 @@ describe("PSYMM", function () {
           e: ethers.hexlify(ethers.randomBytes(32)),
           s: ethers.hexlify(ethers.randomBytes(32)),
         },
-        merkleProof: permissionTree.getProof(1), // Use proof for custodyToAddress leaf
+        merkleProof: [], // Use proof for custodyToAddress leaf
       };
 
       // Operation should fail due to state mismatch
       await expect(
         subject.psymm.connect(subject.user1).custodyToAddress(
           await subject.usdc.getAddress(),
-          subject.user2.address,
+          subject.user1.address,
           ethers.parseEther("1"),
           transferData
         )
@@ -748,103 +583,51 @@ describe("PSYMM", function () {
     });
 
     it("Should correctly get nullifier state", async function () {
+
+      const { custodyId, ppmHelper, pubKeyParity, pubKeyX } = await getSinglePartyCustodyId(subject);
       // Set up custody with funds
       await subject.usdc.mint(subject.user1.address, amount);
       await subject.usdc.connect(subject.user1).approve(await subject.psymm.getAddress(), amount);
       await subject.psymm.connect(subject.user1).addressToCustody(custodyId, await subject.usdc.getAddress(), amount);
 
-      // Chain ID and contract address for verification
-      const chainId = await ethers.provider.getNetwork().then((n) => n.chainId);
-      const contractAddress = await subject.psymm.getAddress();
-
-      // Public key using address verification shortcut
-      const pubKeyParity = 0;
-      const pubKeyX = ethers.zeroPadValue(subject.user1.address, 32);
-
-      // Create nullifier to test
-      const nullifier = ethers.hexlify(ethers.randomBytes(32));
-      
-      // Should be false for unused nullifier
-      const isUsed = await subject.psymm.getNullifier(nullifier);
-      expect(isUsed).to.equal(false, "Unused nullifier should return false");
-
-      // Create leaf for custodyToAddress permission
-      const custodyToAddressParams = ethers.AbiCoder.defaultAbiCoder().encode(
-        ["address"], 
-        [subject.user2.address]
-      );
-      
-      const custodyToAddressLeaf = createLeaf(
-        "custodyToAddress",
-        chainId,
-        contractAddress,
-        0,
-        custodyToAddressParams,
-        pubKeyParity,
-        pubKeyX
-      );
-
-      // Create a tree with just the leaf
-      const permissionTree = StandardMerkleTree.of([[custodyToAddressLeaf]], ["bytes32"]);
-      
-      // Get current block timestamp
       const currentBlockTimestamp = await getLatestBlockTimestamp();
-      const baseTimestamp = currentBlockTimestamp + 4000;
-      
-      // Update PPM to the permission tree
-      const updatePPMData = {
-        id: custodyId,
-        state: 0,
-        timestamp: baseTimestamp,
-        pubKey: {
-          parity: pubKeyParity,
-          x: pubKeyX,
-        },
-        sig: {
-          e: ethers.hexlify(ethers.randomBytes(32)),
-          s: ethers.hexlify(ethers.randomBytes(32)),
-        },
-        merkleProof: [], // Empty proof for initial PPM
-      };
-      
-      // Set blockchain time to updatePPM timestamp
-      await ethers.provider.send("evm_setNextBlockTimestamp", [baseTimestamp + 1]);
-      await ethers.provider.send("evm_mine", []);
-      
-      // Update the PPM to our leaf/tree root
-      await subject.psymm.connect(subject.user1).updatePPM(permissionTree.root, updatePPMData);
 
-      // Create verification data with the test nullifier
-      const transferTimestamp = baseTimestamp + 100; // Later than updatePPM
+      const proof = ppmHelper.getMerkleProofByTypeAndArgs('custodyToAddress', {
+        receiver: subject.user1.address,
+      }, 0, [{
+        parity: pubKeyParity,
+        x: pubKeyX,
+      }])
+      const e = ethers.hexlify(ethers.randomBytes(32));
       const verificationData = {
         id: custodyId,
         state: 0,
-        timestamp: transferTimestamp,
+        timestamp: currentBlockTimestamp,
         pubKey: {
           parity: pubKeyParity,
           x: pubKeyX,
         },
         sig: {
-          e: nullifier, // Use our test nullifier
+          e: e, // Use our test nullifier
           s: ethers.hexlify(ethers.randomBytes(32)),
         },
-        merkleProof: permissionTree.getProof(0), // Use proof from the tree
+        merkleProof: proof, // Use proof from the tree
       };
 
       // Set blockchain time to transfer timestamp
-      await ethers.provider.send("evm_setNextBlockTimestamp", [transferTimestamp + 1]);
+      await ethers.provider.send("evm_setNextBlockTimestamp", [currentBlockTimestamp + 1]);
       await ethers.provider.send("evm_mine", []);
       
+      expect(await subject.psymm.getNullifier(e)).to.equal(false, "Unused nullifier should return false");
       await subject.psymm.connect(subject.user1).custodyToAddress(
         await subject.usdc.getAddress(),
-        subject.user2.address,
+        subject.user1.address,
         ethers.parseEther("1"),
         verificationData
       );
 
       // Should be true after using the nullifier
-      const isUsedAfter = await subject.psymm.getNullifier(nullifier);
-      expect(isUsedAfter).to.equal(true, "Used nullifier should return true");
+      expect(await subject.psymm.getNullifier(e)).to.equal(true, "Used nullifier should return true");
     });
 
     it("Should correctly get SMA allowance", async function () {
@@ -887,7 +670,6 @@ describe("PSYMM", function () {
     });
 
     it("Should allow custody to SMA transfer", async function () {
-      console.log("\n=== SMA Transfer Test with Schnorr Signatures ===");
 
       // Deploy mock SMA
       const MockSMA = await ethers.getContractFactory("MockAaveSMA");
@@ -908,11 +690,9 @@ describe("PSYMM", function () {
       const usdcAddress = await subject.usdc.getAddress();
       const smaAddress = await mockSMA.getAddress();
 
-      console.log("Setting up Schnorr key pairs...");
 
       // Generate real Schnorr key pair for the test
       const keyPair = SchnorrHelper.generateKeyPair();
-      console.log("Key Pair - parity:", keyPair.publicKey.parity, "x:", keyPair.publicKey.x);
       
       // Create the PPM Helper
       const ppmHelper = new PPMHelper(Number(chainId), contractAddress as `0x${string}`);
@@ -936,10 +716,8 @@ describe("PSYMM", function () {
       
       // Get custody ID from PPM helper
       const custodyId = ppmHelper.getCustodyID();
-      console.log("Custody ID:", custodyId);
       
       // Deposit funds to custody
-      console.log("\nDepositing funds to custody...");
       // Mint tokens to the user first
       await subject.usdc.mint(subject.user1.address, amount);
       await subject.usdc.connect(subject.user1).approve(contractAddress, amount);
@@ -947,15 +725,11 @@ describe("PSYMM", function () {
       
       // Verify initial custody balance
       const initialBalance = await subject.psymm.custodyBalances(custodyId, usdcAddress);
-      console.log("Initial custody balance:", initialBalance.toString());
       
       // Create timestamps for operations
       const baseTimestamp = Math.floor(Date.now() / 1000);
       const deploySMATimestamp = baseTimestamp + 3600; // 1 hour in the future
       const smaTransferTimestamp = baseTimestamp + 7200; // 2 hours in the future
-      
-      // STEP 1: Deploy SMA
-      console.log("\n=== Deploying SMA ===");
       
       // Find the index of the deploySMA action in the PPM
       const ppmItems = ppmHelper.getPPM();
@@ -968,7 +742,6 @@ describe("PSYMM", function () {
         }
       }
       
-      console.log("Deploy SMA Index:", deploySMAIndex);
       const deploySMAProof = ppmHelper.getMerkleProof(deploySMAIndex);
       
       // Create message for deploySMA
@@ -997,9 +770,6 @@ describe("PSYMM", function () {
       // Execute deploySMA
       await subject.psymm.connect(subject.user1).deploySMA(smaType, factoryAddress, data, deploySMAData);
       
-      // STEP 2: Transfer to SMA
-      console.log("\n=== Transferring to SMA ===");
-      
       // Find the index of the custodyToSMA action in the PPM
       let custodyToSMAIndex = -1;
       
@@ -1010,7 +780,6 @@ describe("PSYMM", function () {
         }
       }
       
-      console.log("Custody to SMA Index:", custodyToSMAIndex);
       const custodyToSMAProof = ppmHelper.getMerkleProof(custodyToSMAIndex);
       
       // Create message for custodyToSMA
@@ -1032,7 +801,6 @@ describe("PSYMM", function () {
         merkleProof: custodyToSMAProof,
       };
       
-      console.log("SMA Verification Data:", JSON.stringify(custodyToSMAData, null, 2));
       
       // Set blockchain time to custodyToSMA timestamp
       await ethers.provider.send("evm_setNextBlockTimestamp", [smaTransferTimestamp + 1]);
@@ -1045,9 +813,6 @@ describe("PSYMM", function () {
       const custodyBalance = await subject.psymm.custodyBalances(custodyId, usdcAddress);
       const smaBalance = await subject.usdc.balanceOf(smaAddress);
       
-      console.log("\n=== Results ===");
-      console.log("Custody Balance:", custodyBalance.toString());
-      console.log("SMA Balance:", smaBalance.toString());
       
       expect(custodyBalance).to.equal(0);
       expect(smaBalance).to.equal(amount);
@@ -1138,25 +903,25 @@ describe("PSYMM", function () {
   describe("Multiple Token Support", function () {
     it("Should handle multiple tokens in the same custody", async function () {
       // Create a unique custody ID for this test
-      const multiTokenCustodyId = ethers.id("multi-token-test-custody");
-      const depositAmount = ethers.parseEther("7");
+      const { custodyId, ppmHelper, pubKeyParity, pubKeyX } = await getSinglePartyCustodyId(subject);
+      const depositAmount = 7n
       
       // Deposit USDC
       await subject.usdc.mint(subject.user1.address, depositAmount);
       await subject.usdc.connect(subject.user1).approve(await subject.psymm.getAddress(), depositAmount);
-      await subject.psymm.connect(subject.user1).addressToCustody(multiTokenCustodyId, await subject.usdc.getAddress(), depositAmount);
+      await subject.psymm.connect(subject.user1).addressToCustody(custodyId, await subject.usdc.getAddress(), depositAmount);
       
       // Deposit USDE as well
-      await subject.usde.mint(subject.user1.address, depositAmount * 2);
-      await subject.usde.connect(subject.user1).approve(await subject.psymm.getAddress(), depositAmount * 2);
-      await subject.psymm.connect(subject.user1).addressToCustody(multiTokenCustodyId, await subject.usde.getAddress(), depositAmount * 2n);
+      await subject.usde.mint(subject.user1.address, depositAmount * 2n);
+      await subject.usde.connect(subject.user1).approve(await subject.psymm.getAddress(), depositAmount * 2n);
+      await subject.psymm.connect(subject.user1).addressToCustody(custodyId, await subject.usde.getAddress(), depositAmount * 2n);
       
       // Check both balances
-      const usdcBalance = await subject.psymm.getCustodyBalances(multiTokenCustodyId, await subject.usdc.getAddress());
-      const usdeBalance = await subject.psymm.getCustodyBalances(multiTokenCustodyId, await subject.usde.getAddress());
+      const usdcBalance = await subject.psymm.getCustodyBalances(custodyId, await subject.usdc.getAddress());
+      const usdeBalance = await subject.psymm.getCustodyBalances(custodyId, await subject.usde.getAddress());
       
       expect(usdcBalance).to.equal(depositAmount, "USDC balance should be correct");
-      expect(usdeBalance).to.equal(depositAmount * 2, "USDE balance should be correct");
+      expect(usdeBalance).to.equal(depositAmount * 2n, "USDE balance should be correct");
     });
   });
 });

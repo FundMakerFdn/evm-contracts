@@ -47,18 +47,6 @@ describe("ETF Operations", function () {
   beforeEach(async function () {
     subject = await loadFixture(deployFixture);
 
-    // Deploy IndexRegistry first
-    const IndexRegistry = await ethers.getContractFactory("IndexRegistry");
-    indexRegistry = await IndexRegistry.deploy();
-    await indexRegistry.waitForDeployment();
-
-    // Deploy IndexFactory with PSYMM address
-    const IndexFactory = await ethers.getContractFactory("IndexFactory");
-    indexFactory = await IndexFactory.deploy(
-      await subject.psymm.getAddress()
-    );
-    await indexFactory.waitForDeployment();
-
     // Create a new index through PSYMM
     const custodyId = ethers.id("test-custody");
     

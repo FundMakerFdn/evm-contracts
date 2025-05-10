@@ -48,7 +48,8 @@ class PPMHelper {
       custodyToSMA: "string smaType,address token",
       changeCustodyState: "uint8 newState",
       custodyToCustody: "bytes32 receiverId",
-      updatePPM: "" // No parameters
+      updatePPM: "", // No parameters
+      updateCustodyState: "", // No parameters
     };
   }
 
@@ -230,6 +231,18 @@ class PPMHelper {
     );
   }
 
+  updateCustodyState(
+    state: number,
+    party: Party | Party[]
+  ): number {
+    return this.addItem(
+      "updateCustodyState",
+      {},
+      state,
+      party
+    );
+  }
+
   // Get all PPM items
   getPPM(): PPMItemExpanded[] {
     return this.ppmItems;
@@ -313,7 +326,42 @@ class PPMHelper {
       }
     }
     
-    return null;
+    return [];
+  }
+
+  // Get merkle proof by action type and args
+  getMerkleProofByTypeAndArgs(
+    type: PPMItemType, 
+    args: Record<string, any>, 
+    state: number, 
+    party: Party | Party[]
+  ): string[] | [] {
+    // Create a temporary item with the provided parameters
+    let encodedArgs: Hex;
+
+    // Handle special case for callSMA where callData might be an object
+    if (type === "callSMA" && typeof args.callData === "object" && "type" in args.callData) {
+      const callDataObj = args.callData as { type: string; args: any[] };
+      const callData = this.encodeCalldata(
+        callDataObj.type,
+        callDataObj.args
+      );
+      args = { ...args, callData };
+    }
+
+    encodedArgs = this.encodeArgs(type, args);
+
+    const tempItem: PPMItemExpanded = {
+      type,
+      chainId: this.chainId,
+      pSymm: this.ppmAddress,
+      state,
+      args: encodedArgs,
+      party,
+    };
+
+    // Use the existing function to find the proof
+    return this.getMerkleProofByAction(tempItem);
   }
 
   // Get all actions with their corresponding indices and proofs
