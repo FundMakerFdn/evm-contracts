@@ -13,7 +13,7 @@ import {
 import { StandardMerkleTree } from "@openzeppelin/merkle-tree";
 
 // Define types for the PPM items
-type PPMItemType = "deploySMA" | "callSMA" | "custodyToAddress" | "custodyToSMA" | "changeCustodyState" | "custodyToCustody" | "updatePPM";
+type PPMItemType = "deploySMA" | "callSMA" | "custodyToAddress" | "custodyToSMA" | "changeCustodyState" | "custodyToCustody" | "updatePPM" | "updateCustodyState";
 
 interface Party {
   parity: number;
@@ -45,7 +45,7 @@ class PPMHelper {
       deploySMA: "string smaType,address factoryAddress,bytes callData",
       callSMA: "string smaType,address smaAddress,bytes callData",
       custodyToAddress: "address receiver",
-      custodyToSMA: "string smaType,address token",
+      custodyToSMA: "address smaAddress,address token",
       changeCustodyState: "uint8 newState",
       custodyToCustody: "bytes32 receiverId",
       updatePPM: "", // No parameters
@@ -180,14 +180,14 @@ class PPMHelper {
   }
 
   custodyToSMA(
-    smaType: string,
+    smaAddress: Address | string,
     token: Address | string,
     state: number,
     party: Party | Party[]
   ): number {
     return this.addItem(
       "custodyToSMA",
-      { smaType, token },
+      { smaAddress, token },
       state,
       party
     );
@@ -302,7 +302,7 @@ class PPMHelper {
   }
 
   // Get merkle proof by action details (useful when you have the action but not the index)
-  getMerkleProofByAction(item: PPMItemExpanded): string[] | null {
+  getMerkleProofByAction(item: PPMItemExpanded): string[] {
     const tree = this.getMerkleTree();
     
     // Fix the iteration issue by using Array.from() to convert the iterator to an array
