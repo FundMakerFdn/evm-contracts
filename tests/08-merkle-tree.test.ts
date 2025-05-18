@@ -70,7 +70,6 @@ describe('Merkle Tree Tests', function () {
 
     // Get the root
     const root = ppmHelper.getCustodyID();
-    console.log(ppmHelper.getMerkleProof(actionIndices[0]));
 
     // Verify each leaf's proof
     for (let i = 0; i < actionIndices.length; i++) {
