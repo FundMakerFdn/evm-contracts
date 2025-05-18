@@ -350,8 +350,7 @@ contract PSYMM {
         emit CustodyStateChanged(v.id, state);
     }
 
-    // Instant Settlement Function happens in another contract that call withdrawReRouting
-    // Early Agreements happens inside PPM
+    /// SettleMaker
     function withdrawReRouting(bytes32 id, address destination) public {
         // buy the right of redirecting claims from a dispute // managed in external contract
         require(withdrawReRoutings[id][msg.sender] == address(0), "Already the custody owner");

@@ -350,14 +350,25 @@ contract PSYMM {
         emit CustodyStateChanged(v.id, state);
     }
 
-    // Instant Settlement Function happens in another contract that call withdrawReRouting
-    // Early Agreements happens inside PPM
+    /// SettleMaker
     function withdrawReRouting(bytes32 id, address destination) public {
         // buy the right of redirecting claims from a dispute // managed in external contract
         require(withdrawReRoutings[id][msg.sender] == address(0), "Already the custody owner");
         withdrawReRoutings[id][msg.sender] = destination;
         emit withdrawReRoutingEvent(id, msg.sender, destination);
     }
+
+    /// Provisional Settlement
+    // @notice multiple provisional settlement can be emmited on the same custody, but only 1 need to not be revoked
+    //          If more than 1 provisional settlement is live during vote phase, report vote
+    //          If no proposal, dispute is considered on hold
+    //          Submit and revoke are only considered if called by a validator
+    //          Any user can propose a submit though discuss
+    //          Solver who spam submit will be slashed by other SettleMaker validators
+    function submitProvisional(bytes32 _id, bytes calldata _calldata, bytes calldata _msg) external { emit submitProvisionalEvent(_id, _calldata, _msg);}
+    function revokeProvisional(bytes32 _id, bytes calldata _calldata, bytes calldata _msg) external { emit revokeProvisionalEvent(_id, _calldata, _msg);}
+    function discussProvisional(bytes32 _id, bytes calldata _msg) external { emit discussProvisionalEvent(_id, _msg);}  // submit arweave merkle leaves here
+    
 
     // Read functions
 

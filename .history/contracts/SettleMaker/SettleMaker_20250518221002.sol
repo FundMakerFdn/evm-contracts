@@ -31,8 +31,8 @@ contract SettleMaker {
     function revokeProvisional(bytes32 _id, bytes calldata _calldata, bytes calldata _msg) external { emit revokeProvisionalEvent(_id, _calldata, _msg);}
     function discussProvisional(bytes32 _id, bytes calldata _msg) external { emit discussProvisionalEvent(_id, _msg);}  // submit arweave merkle leaves here
     
-    // PSYMM custody state change, if state change to 1, SettleMaker validator will check submissions here (only on submission event from here ). 
-
+    // PSYMM custody state change, if state change to 1, SettleMaker validator will check submissions here. 
+    // In case no submissions, 
 
     ////////////////////////////////////////////////////////////////////
     // allowing anyone to post and read content of a merkle tree for all settlemaker ecosystem
