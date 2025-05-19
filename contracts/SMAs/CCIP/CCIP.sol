@@ -14,7 +14,7 @@ contract CCIP is Ownable {
     mapping(address => bool) public whitelistedCallers;
 
     event CCIPMessageSent(
-        bytes32 indexed messageId, 
+        bytes32 indexed messageId,
         uint64 indexed destinationChainSelector,
         address receiver,
         bytes data,
@@ -22,8 +22,12 @@ contract CCIP is Ownable {
         uint256 fees
     );
 
-    event DestinationCCIPReceiverUpdated(uint64 indexed chainSelector, address indexed receiverAddress);
+    event DestinationCCIPReceiverUpdated(
+        uint64 indexed chainSelector,
+        address indexed receiverAddress
+    );
     event CallerWhitelisted(address indexed caller, bool status);
+
     constructor(address _router) Ownable(msg.sender) {
         require(_router != address(0), "CCIP: Invalid router address");
         router = IRouterClient(_router);
@@ -34,13 +38,22 @@ contract CCIP is Ownable {
         _;
     }
 
-    function setDestinationCCIPReceiver(uint64 _chainSelector, address _receiverAddress) external onlyOwner {
-        require(_receiverAddress != address(0), "CCIP: Invalid CCIPReceiver address");
+    function setDestinationCCIPReceiver(
+        uint64 _chainSelector,
+        address _receiverAddress
+    ) external onlyOwner {
+        require(
+            _receiverAddress != address(0),
+            "CCIP: Invalid CCIPReceiver address"
+        );
         destinationCCIPReceivers[_chainSelector] = _receiverAddress;
         emit DestinationCCIPReceiverUpdated(_chainSelector, _receiverAddress);
     }
 
-    function setCallerWhitelist(address _caller, bool _status) external onlyOwner {
+    function setCallerWhitelist(
+        address _caller,
+        bool _status
+    ) external onlyOwner {
         whitelistedCallers[_caller] = _status;
         emit CallerWhitelisted(_caller, _status);
     }
@@ -50,8 +63,13 @@ contract CCIP is Ownable {
         bytes calldata _encodedCCIPMessage,
         address _feeToken
     ) external onlyWhitelisted returns (bytes32 messageId) {
-        address receiverOnDestinationChain = destinationCCIPReceivers[_destinationChainSelector];
-        require(receiverOnDestinationChain != address(0), "CCIP: Destination CCIPReceiver not configured");
+        address receiverOnDestinationChain = destinationCCIPReceivers[
+            _destinationChainSelector
+        ];
+        require(
+            receiverOnDestinationChain != address(0),
+            "CCIP: Destination CCIPReceiver not configured"
+        );
 
         Client.EVM2AnyMessage memory message = Client.EVM2AnyMessage({
             receiver: abi.encode(receiverOnDestinationChain),
@@ -70,7 +88,10 @@ contract CCIP is Ownable {
             IERC20(_feeToken).approve(address(router), fees);
             messageId = router.ccipSend(_destinationChainSelector, message);
         } else {
-            messageId = router.ccipSend{value: fees}(_destinationChainSelector, message);
+            messageId = router.ccipSend{value: fees}(
+                _destinationChainSelector,
+                message
+            );
         }
 
         emit CCIPMessageSent(
@@ -84,5 +105,6 @@ contract CCIP is Ownable {
 
         return messageId;
     }
+
     receive() external payable {}
-} 
+}

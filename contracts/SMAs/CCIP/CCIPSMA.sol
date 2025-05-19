@@ -107,7 +107,8 @@ contract CCIPSMA {
         address _ccipContractAddress,
         address _localCCIPReceiverAddress,
         address _factoryAddress,
-        bytes32 _custodyId
+        bytes32 _custodyId,
+        address _whitelistedCaller // TODO: Remove this after testing
     ) {
         require(_pSymmAddress != address(0), "CCIPSMA: Invalid pSymm address");
         require(
@@ -129,11 +130,10 @@ contract CCIPSMA {
         factory = ICCIPSMAFactory(_factoryAddress);
         custodyId = _custodyId;
 
-        // TEMPORARY: Set whitelisted callers
-        whitelistedCallers[msg.sender] = true;
+        // TODO: Remove this after testing
+        whitelistedCallers[_whitelistedCaller] = true;
     }
 
-    // Add function to manage bot authorization
     function setWhitelistedCaller(
         address caller,
         bool whitelisted
@@ -153,6 +153,7 @@ contract CCIPSMA {
         external
         onlyWhitelistedCaller
         allowedDestinationChain(_destinationChainSelector)
+        returns (bytes32 messageId)
     {
         require(
             _destinationTargetSMA != address(0),
@@ -171,7 +172,7 @@ contract CCIPSMA {
 
         bytes memory encodedCCIPMessage = abi.encode(message);
 
-        ccipContract.sendMessage(
+        messageId = ccipContract.sendMessage(
             _destinationChainSelector,
             encodedCCIPMessage,
             _feeToken
@@ -276,5 +277,13 @@ contract CCIPSMA {
     ) public onlySelfOrPSYMM {
         IERC20(_token).approve(address(pSymm), _amount);
         pSymm.addressToCustody(custodyId, _token, _amount);
+    }
+
+    function approveToken(
+        address _token,
+        address _spender,
+        uint256 _amount
+    ) public onlyWhitelistedCaller {
+        IERC20(_token).approve(_spender, _amount);
     }
 }

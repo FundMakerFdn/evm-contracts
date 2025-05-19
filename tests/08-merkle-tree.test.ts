@@ -91,8 +91,6 @@ describe('Merkle Tree Tests', function () {
           party.x
         )
       ).to.not.be.reverted;
-
-      console.log(`Verified proof for action type: ${item.type}`);
     }
   });
 
