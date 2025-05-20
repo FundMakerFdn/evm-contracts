@@ -1,11 +1,7 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.24;
 
-interface ICCIPSMAFactory {
-    function destinationChainAllowed(
-        uint64 chainSelector
-    ) external view returns (bool);
-
+interface ISMAFactory {
     function deploySMA(
         bytes32 custodyId,
         bytes calldata data,

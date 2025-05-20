@@ -9,14 +9,7 @@ import "./Schnorr.sol";
 import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "./VerificationUtils.sol";
-
-interface ISMAFactory {
-    function deploySMA(
-        bytes32 custodyId,
-        bytes calldata data,
-        address _whitelistedCaller
-    ) external returns (address);
-}
+import "../interfaces/ISMAFactory.sol";
 
 contract PSYMM {
     using SafeERC20 for IERC20;

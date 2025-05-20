@@ -2,7 +2,7 @@
 pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "./ICCIPSMAFactory.sol";
+import "../../interfaces/ICCIPSMAFactory.sol";
 import "./CCIPSMA.sol";
 import "../../PSYMM/PSYMM.sol";
 
@@ -87,7 +87,7 @@ contract CCIPSMAFactory is ICCIPSMAFactory, Ownable {
     ) external override returns (address) {
         require(
             msg.sender == address(pSymm),
-            "Factory: Only pSymm can deploy SMAs"
+            "CCIPSMAFactory: Only pSymm can deploy SMAs"
         );
 
         CCIPSMA sma = new CCIPSMA(

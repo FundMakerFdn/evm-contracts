@@ -364,10 +364,10 @@ describe('UniswapV3SMA', function () {
       };
       await time.setNextBlockTimestamp(callSMATimestamp);
       await psymm.callSMA(
-        'uniswapV3',
+        'UniswapV3SMA',
         smaAddress,
         swapCallData,
-        '0x',
+        deployDataForSMA,
         verificationDataForCallSMA
       );
       expect(await tokenA.balanceOf(smaAddress)).to.equal(0);

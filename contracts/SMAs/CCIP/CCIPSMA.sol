@@ -6,7 +6,7 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@chainlink/contracts-ccip/src/v0.8/ccip/interfaces/IRouterClient.sol";
 import "../../PSYMM/PSYMM.sol";
 import "./CCIP.sol";
-import "./ICCIPSMAFactory.sol";
+import "../../interfaces/ICCIPSMAFactory.sol";
 import "../../PSYMM/Schnorr.sol";
 
 contract CCIPSMA {

@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-interface IUniswapV3SMAFactory {
+import "./ISMAFactory.sol";
+
+interface IUniswapV3SMAFactory is ISMAFactory {
     function routerAddress() external view returns (address);
 
     function pSymmAddress() external view returns (address);
@@ -13,10 +15,4 @@ interface IUniswapV3SMAFactory {
     function slippageLimitBps() external view returns (uint256);
 
     function maxDeadlineExtension() external view returns (uint256);
-
-    function deploySMA(
-        bytes32 custodyId,
-        bytes calldata data,
-        address _whitelistedCaller // TODO: Remove this after testing
-    ) external returns (address);
 }

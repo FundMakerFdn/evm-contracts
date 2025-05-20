@@ -5,7 +5,7 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "../../PSYMM/PSYMM.sol";
 import "./UniswapV3SMA.sol";
-import "./IUniswapV3SMAFactory.sol";
+import "../../interfaces/IUniswapV3SMAFactory.sol";
 
 import "hardhat/console.sol";
 
@@ -48,9 +48,13 @@ contract UniswapV3SMAFactory is IUniswapV3SMAFactory {
         bytes32 custodyId,
         bytes calldata data,
         address _whitelistedCaller
-    ) external onlyPSymm returns (address) {
+    ) external override returns (address) {
+        require(
+            msg.sender == address(pSymmAddress),
+            "UniswapV3SMAFactory: Only pSymm can deploy SMAs"
+        );
         // Extract custodyId from the data
-        require(data.length >= 32, "Data too short for custodyId");
+        // require(data.length >= 32, "Data too short for custodyId");
 
         // TODO: Validate the logic of extracting custodyId from the data
         // bytes32 custodyId;

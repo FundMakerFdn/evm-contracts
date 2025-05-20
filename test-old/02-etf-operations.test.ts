@@ -1,6 +1,6 @@
 import { expect } from 'chai';
 import { loadFixture } from '@nomicfoundation/hardhat-network-helpers';
-import { deployFixture, SubjectType } from './fixtures/DeployFixture';
+import { deployFixture, SubjectType } from '../tests/fixtures/DeployFixture';
 import { ethers } from 'hardhat';
 import { StandardMerkleTree } from '@openzeppelin/merkle-tree';
 

@@ -311,7 +311,7 @@ describe('CCIPSMA Integration Tests', function () {
       // Should fail because only PSYMM can deploy SMAs
       await expect(
         factorySource.deploySMA(deployData, deployData, owner.address)
-      ).to.be.revertedWith('Factory: Only pSymm can deploy SMAs');
+      ).to.be.revertedWith('CCIPSMAFactory: Only pSymm can deploy SMAs');
     });
 
     it('should deploy CCIPSMA through PSYMM with correct initialization', async function () {
