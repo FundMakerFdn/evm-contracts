@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import "hardhat/console.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -10,12 +9,7 @@ import "./Schnorr.sol";
 import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "./VerificationUtils.sol";
-
-import "hardhat/console.sol";
-
-interface ISMAFactory {
-    function deploySMA(bytes calldata data) external returns (address);
-}
+import "../interfaces/ISMAFactory.sol";
 
 contract PSYMM {
     using SafeERC20 for IERC20;
@@ -31,15 +25,56 @@ contract PSYMM {
 
     event PPMUpdated(bytes32 indexed id, bytes32 ppm, uint256 timestamp);
     event CustodyStateChanged(bytes32 indexed id, uint8 newState);
-    event SMADeployed(bytes32 indexed id, address factoryAddress, address smaAddress);
-    event addressToCustodyEvent(bytes32 indexed id, address token, uint256 amount);
-    event custodyToCustodyEvent(bytes32 indexed id, bytes32 receiverId, address token, uint256 amount);
-    event custodyToAddressEvent(bytes32 indexed id, address token, address destination, uint256 amount);
-    event custodyToSMAEvent(bytes32 indexed id, address token, address smaAddress, uint256 amount);
-    event callSMAEvent(bytes32 indexed id, string smaType, address smaAddress, bytes fixedCallData, bytes tailCallData);
-    event withdrawReRoutingEvent(bytes32 indexed id, address sender, address destination);
-    event submitProvisionalEvent(bytes32 indexed id, bytes _calldata, bytes _msg);
-    event revokeProvisionalEvent(bytes32 indexed id, bytes _calldata, bytes _msg);
+    event SMADeployed(
+        bytes32 indexed id,
+        address factoryAddress,
+        address smaAddress
+    );
+    event addressToCustodyEvent(
+        bytes32 indexed id,
+        address token,
+        uint256 amount
+    );
+    event custodyToCustodyEvent(
+        bytes32 indexed id,
+        bytes32 receiverId,
+        address token,
+        uint256 amount
+    );
+    event custodyToAddressEvent(
+        bytes32 indexed id,
+        address token,
+        address destination,
+        uint256 amount
+    );
+    event custodyToSMAEvent(
+        bytes32 indexed id,
+        address token,
+        address smaAddress,
+        uint256 amount
+    );
+    event callSMAEvent(
+        bytes32 indexed id,
+        string smaType,
+        address smaAddress,
+        bytes fixedCallData,
+        bytes tailCallData
+    );
+    event withdrawReRoutingEvent(
+        bytes32 indexed id,
+        address sender,
+        address destination
+    );
+    event submitProvisionalEvent(
+        bytes32 indexed id,
+        bytes _calldata,
+        bytes _msg
+    );
+    event revokeProvisionalEvent(
+        bytes32 indexed id,
+        bytes _calldata,
+        bytes _msg
+    );
     event discussProvisionalEvent(bytes32 indexed id, bytes _msg);
 
     mapping(bytes32 => bytes32) private custodys;
@@ -56,14 +91,19 @@ contract PSYMM {
     mapping(bytes32 => mapping(address => address)) private withdrawReRoutings; // custodyId => address => address // used for instant withdraw
 
     mapping(uint256 => mapping(address => uint256)) public slashableCustody; // msgSeqNum => tokenId => amount
-    mapping(bytes32 => mapping(address => mapping(address => uint256))) public freezeOrder; // custodyId => partyId => tokenId => amount
+    mapping(bytes32 => mapping(address => mapping(address => uint256)))
+        public freezeOrder; // custodyId => partyId => tokenId => amount
 
     modifier checkCustodyState(bytes32 id, uint8 state) {
         require(custodyState[id] == state, "State isn't 0");
         _;
     }
 
-    modifier checkCustodyBalance(bytes32 id, address token, uint256 amount) {
+    modifier checkCustodyBalance(
+        bytes32 id,
+        address token,
+        uint256 amount
+    ) {
         require(custodyBalances[id][token] >= amount, "Out of collateral");
         _;
     }
@@ -73,16 +113,20 @@ contract PSYMM {
         nullifier[_nullifier] = true;
         _;
     }
-    
+
     modifier checkExpiry(uint256 _timestamp) {
         require(_timestamp <= block.timestamp, "Signature expired");
         _;
     }
 
-    function addressToCustody(bytes32 id, address token, uint256 amount) external {
+    function addressToCustody(
+        bytes32 id,
+        address token,
+        uint256 amount
+    ) external {
         IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
         custodyBalances[id][token] += amount;
-		PPMs[id] = id;
+        PPMs[id] = id;
         emit addressToCustodyEvent(id, token, amount);
     }
 
@@ -91,7 +135,13 @@ contract PSYMM {
         address destination,
         uint256 amount,
         VerificationData calldata v
-    ) external checkCustodyState(v.id, v.state) checkCustodyBalance(v.id, token, amount) checkExpiry(v.timestamp) checkNullifier(v.sig.e){
+    )
+        external
+        checkCustodyState(v.id, v.state)
+        checkCustodyBalance(v.id, token, amount)
+        checkExpiry(v.timestamp)
+        checkNullifier(v.sig.e)
+    {
         VerificationUtils.verifyLeaf(
             PPMs[v.id],
             v.merkleProof,
@@ -115,9 +165,12 @@ contract PSYMM {
             v.pubKey,
             v.sig
         );
-        if (withdrawReRoutings[v.id][destination] != address(0)){
+        if (withdrawReRoutings[v.id][destination] != address(0)) {
             custodyBalances[v.id][token] -= amount;
-            IERC20(token).safeTransfer(withdrawReRoutings[v.id][destination], amount);
+            IERC20(token).safeTransfer(
+                withdrawReRoutings[v.id][destination],
+                amount
+            );
         } else {
             custodyBalances[v.id][token] -= amount;
             IERC20(token).safeTransfer(destination, amount);
@@ -130,8 +183,13 @@ contract PSYMM {
         bytes32 receiverId,
         uint256 amount,
         VerificationData calldata v
-    ) external checkCustodyState(v.id, v.state) checkCustodyBalance(v.id, token, amount) checkExpiry(v.timestamp) checkNullifier(v.sig.e){
-
+    )
+        external
+        checkCustodyState(v.id, v.state)
+        checkCustodyBalance(v.id, token, amount)
+        checkExpiry(v.timestamp)
+        checkNullifier(v.sig.e)
+    {
         VerificationUtils.verifyLeaf(
             PPMs[v.id],
             v.merkleProof,
@@ -157,7 +215,6 @@ contract PSYMM {
             v.sig
         );
 
-  
         custodyBalances[v.id][token] -= amount;
         custodyBalances[receiverId][token] += amount;
 
@@ -169,7 +226,13 @@ contract PSYMM {
         address smaAddress,
         uint256 amount,
         VerificationData calldata v
-    ) external checkCustodyState(v.id, v.state) checkCustodyBalance(v.id, token, amount) checkExpiry(v.timestamp) checkNullifier(v.sig.e){
+    )
+        external
+        checkCustodyState(v.id, v.state)
+        checkCustodyBalance(v.id, token, amount)
+        checkExpiry(v.timestamp)
+        checkNullifier(v.sig.e)
+    {
         require(smaAllowance[v.id][smaAddress], "SMA not whitelisted");
         require(onlyCustodyOwner[smaAddress], "No permission");
 
@@ -205,8 +268,16 @@ contract PSYMM {
     function updatePPM(
         bytes32 _newPPM,
         VerificationData calldata v
-    ) external checkCustodyState(v.id, v.state) checkExpiry(v.timestamp) checkNullifier(v.sig.e){
-        require(v.timestamp > lastSMAUpdateTimestamp[v.id], "Signature expired");
+    )
+        external
+        checkCustodyState(v.id, v.state)
+        checkExpiry(v.timestamp)
+        checkNullifier(v.sig.e)
+    {
+        require(
+            v.timestamp > lastSMAUpdateTimestamp[v.id],
+            "Signature expired"
+        );
 
         VerificationUtils.verifyLeaf(
             PPMs[v.id],
@@ -221,12 +292,7 @@ contract PSYMM {
         );
 
         VerificationUtils.verifySchnorr(
-            abi.encode(
-                v.timestamp,
-                "updatePPM",
-                v.id,
-                _newPPM
-            ),
+            abi.encode(v.timestamp, "updatePPM", v.id, _newPPM),
             v.pubKey,
             v.sig
         );
@@ -241,8 +307,16 @@ contract PSYMM {
         address _factoryAddress,
         bytes calldata _data,
         VerificationData calldata v
-    ) external checkCustodyState(v.id, v.state) checkExpiry(v.timestamp) checkNullifier(v.sig.e){ 
-        require(v.timestamp > lastSMAUpdateTimestamp[v.id], "Signature expired");
+    )
+        external
+        checkCustodyState(v.id, v.state)
+        checkExpiry(v.timestamp)
+        checkNullifier(v.sig.e)
+    {
+        require(
+            v.timestamp > lastSMAUpdateTimestamp[v.id],
+            "Signature expired"
+        );
 
         VerificationUtils.verifyLeaf(
             PPMs[v.id],
@@ -269,13 +343,16 @@ contract PSYMM {
             v.sig
         );
 
-        address smaAddress = ISMAFactory(_factoryAddress).deploySMA(_data);
+        address smaAddress = ISMAFactory(_factoryAddress).deploySMA(
+            v.id,
+            _data,
+            msg.sender
+        );
         smaAllowance[v.id][smaAddress] = true;
         onlyCustodyOwner[smaAddress] = true;
 
         emit SMADeployed(v.id, _factoryAddress, smaAddress);
     }
-
 
     function callSMA(
         string calldata smaType,
@@ -283,7 +360,12 @@ contract PSYMM {
         bytes calldata fixedCallData,
         bytes calldata tailCallData,
         VerificationData calldata v
-    ) external checkCustodyState(v.id, v.state) checkExpiry(v.timestamp) checkNullifier(v.sig.e){
+    )
+        external
+        checkCustodyState(v.id, v.state)
+        checkExpiry(v.timestamp)
+        checkNullifier(v.sig.e)
+    {
         require(smaAllowance[v.id][smaAddress], "SMA not whitelisted");
 
         VerificationUtils.verifyLeaf(
@@ -315,14 +397,24 @@ contract PSYMM {
         (bool success, ) = smaAddress.call(fullCallData);
         require(success, "SMA call failed");
 
-        emit callSMAEvent(v.id, smaType, smaAddress, fixedCallData, tailCallData);
+        emit callSMAEvent(
+            v.id,
+            smaType,
+            smaAddress,
+            fixedCallData,
+            tailCallData
+        );
     }
 
     function updateCustodyState(
         uint8 state,
         VerificationData calldata v
-    ) external checkCustodyState(v.id, v.state) checkExpiry(v.timestamp) checkNullifier(v.sig.e){
-
+    )
+        external
+        checkCustodyState(v.id, v.state)
+        checkExpiry(v.timestamp)
+        checkNullifier(v.sig.e)
+    {
         VerificationUtils.verifyLeaf(
             PPMs[v.id],
             v.merkleProof,
@@ -336,12 +428,7 @@ contract PSYMM {
         );
 
         VerificationUtils.verifySchnorr(
-            abi.encode(
-                v.timestamp,
-                "changeCustodyState",
-                v.id,
-                state
-            ),
+            abi.encode(v.timestamp, "changeCustodyState", v.id, state),
             v.pubKey,
             v.sig
         );
@@ -354,7 +441,10 @@ contract PSYMM {
     // Early Agreements happens inside PPM
     function withdrawReRouting(bytes32 id, address destination) public {
         // buy the right of redirecting claims from a dispute // managed in external contract
-        require(withdrawReRoutings[id][msg.sender] == address(0), "Already the custody owner");
+        require(
+            withdrawReRoutings[id][msg.sender] == address(0),
+            "Already the custody owner"
+        );
         withdrawReRoutings[id][msg.sender] = destination;
         emit withdrawReRoutingEvent(id, msg.sender, destination);
     }
@@ -369,19 +459,29 @@ contract PSYMM {
         return PPMs[id];
     }
 
-    function getCustodyBalances(bytes32 id, address token) external view returns (uint256) {
+    function getCustodyBalances(
+        bytes32 id,
+        address token
+    ) external view returns (uint256) {
         return custodyBalances[id][token];
     }
 
-    function getSMAAllowance(bytes32 id, address smaAddress) external view returns (bool) {
+    function getSMAAllowance(
+        bytes32 id,
+        address smaAddress
+    ) external view returns (bool) {
         return smaAllowance[id][smaAddress];
     }
 
-    function getOnlyCustodyOwner(address smaAddress) external view returns (bool) {
+    function getOnlyCustodyOwner(
+        address smaAddress
+    ) external view returns (bool) {
         return onlyCustodyOwner[smaAddress];
     }
 
-    function getLastSMAUpdateTimestamp(bytes32 id) external view returns (uint256) {
+    function getLastSMAUpdateTimestamp(
+        bytes32 id
+    ) external view returns (uint256) {
         return lastSMAUpdateTimestamp[id];
     }
 
@@ -389,12 +489,14 @@ contract PSYMM {
         return nullifier[_nullifier];
     }
 
-    function getCustodyMsg(bytes32 id, uint256 msgId) external view returns (bytes memory) {
+    function getCustodyMsg(
+        bytes32 id,
+        uint256 msgId
+    ) external view returns (bytes memory) {
         return custodyMsg[id][msgId];
     }
 
     function getCustodyMsgLength(bytes32 id) external view returns (uint256) {
         return custodyMsgLength[id];
     }
-
 }

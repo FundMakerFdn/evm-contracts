@@ -5,8 +5,6 @@ import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
 import "./Schnorr.sol";
 
 library VerificationUtils {
-
-    
     /// @notice Verifies that the provided leaf (built from the action parameters) is part of the given Merkle root.
     /// @param ppm The Merkle root against which the leaf is verified.
     /// @param merkleProof The Merkle proof array.
@@ -43,7 +41,10 @@ library VerificationUtils {
                 )
             )
         );
-        require(MerkleProof.verify(merkleProof, ppm, leaf), "Invalid merkle proof");
+        require(
+            MerkleProof.verify(merkleProof, ppm, leaf),
+            "Invalid merkle proof"
+        );
     }
 
     /// @notice Verifies a Schnorr signature.
