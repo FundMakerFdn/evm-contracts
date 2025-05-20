@@ -1,7 +1,7 @@
 import { expect } from 'chai';
 import { loadFixture, time } from '@nomicfoundation/hardhat-network-helpers';
 import { SignerWithAddress } from '@nomicfoundation/hardhat-ethers/signers';
-import { PPMHelper } from './utils/ppmHelper';
+import { PPMHelper } from './utils/PPMHelper';
 import { SchnorrHelper } from './utils/schnorrHelper';
 import { ethers } from 'hardhat';
 import { EventLog, hexlify, randomBytes } from 'ethers';
@@ -113,7 +113,7 @@ describe('UniswapV3SMA', function () {
       // Add deploy action to PPMHelper first
       const deployDataForSMA = '0x' as `0x${string}`;
       const deployActionIndex = ppmHelper.deploySMA(
-        'CCIPSMA',
+        'UniswapV3SMA',
         (await uniFactoryAddress) as `0x${string}`,
         deployDataForSMA,
         0,
@@ -152,7 +152,7 @@ describe('UniswapV3SMA', function () {
 
       await time.setNextBlockTimestamp(deployTimestamp);
 
-      // Deploy CCIPSMA through PSYMM using custody ID directly
+      // Deploy UniswapV3SMA through PSYMM using custody ID directly
       const tx = await psymm.deploySMA(
         'UniswapV3SMA',
         (await uniFactory.getAddress()) as `0x${string}`,
@@ -231,7 +231,7 @@ describe('UniswapV3SMA', function () {
       const swapCallData = (selector + encodedData.slice(2)) as `0x${string}`;
 
       const deployActionIndex = ppmHelper.deploySMA(
-        'uniswapV3',
+        'UniswapV3SMA',
         uniFactoryAddress as `0x${string}`,
         deployDataForSMA as `0x${string}`,
         0,
@@ -244,7 +244,7 @@ describe('UniswapV3SMA', function () {
         publicKey
       );
       const callSMAIndex = ppmHelper.callSMA(
-        'uniswapV3',
+        'UniswapV3SMA',
         expectedSmaAddress as `0x${string}`, // Use pre-calculated address
         swapCallData as `0x${string}`,
         0,
@@ -280,12 +280,33 @@ describe('UniswapV3SMA', function () {
         merkleProof: ppmHelper.getMerkleProof(deployActionIndex),
       };
 
+      // call Test verification contract before calling ccipReceive on the destination receiver
+      const testVerification = await ethers.getContractAt(
+        'TestVerification',
+        '0x0000000000000000000000000000000000000000'
+      );
+      const item = ppmHelper.getPPM()[deployActionIndex];
+      const party = Array.isArray(item.party) ? item.party[0] : item.party;
+      await expect(
+        testVerification.verifyLeaf(
+          verificationDataForDeploySMA.id,
+          verificationDataForDeploySMA.merkleProof,
+          'deploySMA',
+          chainId,
+          await psymm.getAddress(),
+          verificationDataForDeploySMA.state,
+          item.args,
+          party.parity,
+          party.x
+        )
+      ).to.not.be.reverted;
+
       await time.setNextBlockTimestamp(deployTimestamp);
       // PPMs[thePpmRoot] IS thePpmRoot (due to addressToCustody).
       const deployTx = await psymm.deploySMA(
-        'uniswapV3',
+        'UniswapV3SMA',
         uniFactoryAddress,
-        deployDataForSMA, // Pass custody ID instead of deployDataForSMA
+        deployDataForSMA,
         verificationDataForDeploySMA
       );
       const deployReceipt = await deployTx.wait();

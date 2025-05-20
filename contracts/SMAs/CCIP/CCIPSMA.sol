@@ -18,7 +18,7 @@ contract CCIPSMA {
     ICCIPSMAFactory public immutable factory;
     bytes32 public immutable custodyId;
 
-    // Add mapping for authorized bots
+    // Add mapping for authorized callers
     mapping(address => bool) public whitelistedCallers;
 
     enum MessageType {
