@@ -1,5 +1,5 @@
 import { expect } from 'chai';
-import hre from 'hardhat';
+import hre, { ethers } from 'hardhat';
 import { loadFixture, time } from '@nomicfoundation/hardhat-network-helpers';
 import {
   CCIP,
@@ -20,7 +20,7 @@ import {
   parseEther,
 } from 'ethers';
 import '@nomicfoundation/hardhat-chai-matchers';
-import { PPMHelper } from './utils/PPMHelper';
+import { PPMHelper, SMAType } from './utils/PPMHelper';
 
 describe('CCIPSMA Integration Tests', function () {
   // Constants
@@ -29,9 +29,6 @@ describe('CCIPSMA Integration Tests', function () {
   const MOCK_FEE = hre.ethers.parseEther('0.1');
   const MOCK_MESSAGE_ID = hre.ethers.keccak256(
     hre.ethers.toUtf8Bytes('mock-message-id')
-  );
-  const CCIPSMA_CUSTODY_ID = hre.ethers.keccak256(
-    hre.ethers.toUtf8Bytes('ccipsma-custody')
   );
 
   // Test fixture setup
@@ -161,7 +158,7 @@ describe('CCIPSMA Integration Tests', function () {
     // Add deploy action to PPMHelper first
     const deployDataForSMA = '0x' as `0x${string}`;
     const deployActionIndex = ppmHelper.deploySMA(
-      'CCIPSMA',
+      SMAType.CCIP,
       (await factorySource.getAddress()) as `0x${string}`,
       deployDataForSMA,
       0,
@@ -170,9 +167,6 @@ describe('CCIPSMA Integration Tests', function () {
 
     // Add PPM update action and get custody ID
     const updateActionIndex = ppmHelper.updatePPM(0, publicKey);
-
-    // Add a new ppm update action and get custody ID
-    const updateActionIndex2 = ppmHelper.updatePPM(0, publicKey);
 
     // Get custody ID after adding the action
     const custodyId = ppmHelper.getCustodyID();
@@ -208,7 +202,7 @@ describe('CCIPSMA Integration Tests', function () {
 
     // Deploy CCIPSMA through PSYMM using custody ID directly
     const tx = await psymm.deploySMA(
-      'CCIPSMA',
+      SMAType.CCIP,
       (await factorySource.getAddress()) as `0x${string}`,
       deployDataForSMA,
       verificationData
@@ -274,7 +268,7 @@ describe('CCIPSMA Integration Tests', function () {
 
     return {
       smaAddress,
-      smaCustodyId: custodyId,
+      custodyId,
       ccipSMASource,
       ccipSource,
       ccipReceiverSource,
@@ -350,7 +344,7 @@ describe('CCIPSMA Integration Tests', function () {
         pSymmAddress as `0x${string}`
       );
       const deployActionIndex = ppmHelper.deploySMA(
-        'CCIPSMA',
+        SMAType.CCIP,
         factoryAddress as `0x${string}`,
         deployDataForSMA as `0x${string}`,
         0,
@@ -391,7 +385,7 @@ describe('CCIPSMA Integration Tests', function () {
 
       // Deploy CCIPSMA through PSYMM
       const tx = await psymm.deploySMA(
-        'CCIPSMA',
+        SMAType.CCIP,
         factoryAddress,
         deployDataForSMA,
         verificationData
@@ -418,6 +412,87 @@ describe('CCIPSMA Integration Tests', function () {
       );
       expect(await ccipSMA.factory()).to.equal(factoryAddress);
       expect(await ccipSMA.custodyId()).to.equal(custodyIdForPSYMMLink);
+    });
+
+    // deploy and whitelist CCSMA
+    it('should deploy and whitelist CCSMA', async function () {
+      const {
+        psymm,
+        owner,
+        factorySource,
+        linkToken,
+        ppmHelper,
+        chainId,
+        publicKey,
+        ccipSMASource,
+      } = await loadFixture(deployCCIPSMA);
+
+      // Prepare verification data for updatePPM
+      const oldCustodyId = await ppmHelper.getCustodyID();
+      const currentTimestamp = await time.latest();
+      const updatePPMTimestamp = currentTimestamp + 3600;
+      const nullifier = hexlify(randomBytes(32)) as `0x${string}`;
+
+      const updatePPMVerificationData = {
+        id: oldCustodyId,
+        state: 0,
+        timestamp: updatePPMTimestamp,
+        pubKey: publicKey,
+        sig: {
+          e: nullifier,
+          s: hexlify(randomBytes(32)) as `0x${string}`,
+        },
+        merkleProof: ppmHelper.getMerkleProof(1),
+      };
+
+      await time.setNextBlockTimestamp(updatePPMTimestamp);
+
+      // SMA already deployed
+      const smaAddress = (await ccipSMASource.getAddress()) as `0x${string}`;
+      const whitelistSMAIndex = ppmHelper.whitelistSMA(
+        SMAType.CCIP,
+        smaAddress,
+        0,
+        publicKey
+      );
+
+      // update PPM on psymm
+      const smaCustodyId = ppmHelper.getCustodyID();
+      await psymm.updatePPM(smaCustodyId, updatePPMVerificationData);
+
+      // Prepare verification data for whitelistSMA
+      const whitelistSMATimestamp = updatePPMTimestamp + 3600;
+      const whitelistSMANullifier = hexlify(randomBytes(32)) as `0x${string}`;
+
+      const whitelistSMAVerificationData = {
+        id: oldCustodyId,
+        state: 0,
+        timestamp: whitelistSMATimestamp,
+        pubKey: publicKey,
+        sig: {
+          e: whitelistSMANullifier,
+          s: hexlify(randomBytes(32)) as `0x${string}`,
+        },
+        merkleProof: ppmHelper.getMerkleProof(whitelistSMAIndex),
+      };
+
+      await time.setNextBlockTimestamp(whitelistSMATimestamp);
+
+      // whitelist sma on psymm
+      const tx = await psymm.whitelistSMA(
+        SMAType.CCIP,
+        smaAddress,
+        whitelistSMAVerificationData
+      );
+      const receipt = await tx.wait();
+
+      // Find whitelist event
+      const event = receipt?.logs.find((log) => {
+        const eventLog = log as EventLog;
+        return eventLog.eventName === 'SMAWhitelisted';
+      }) as EventLog;
+
+      expect(event).to.not.be.undefined;
     });
   });
 
@@ -551,275 +626,6 @@ describe('CCIPSMA Integration Tests', function () {
     });
   });
 
-  describe('CCIPSMA Deployment and PPM Update via CCIP', () => {
-    it('should deploy CCIPSMA and update PPM in a single test using PPM helper', async function () {
-      const {
-        psymm,
-        factorySource,
-        ccipSource,
-        ccipReceiverSource,
-        linkToken,
-        owner,
-      } = await loadFixture(deployFixture);
-
-      // Deploy TestVerification contract
-      const TestVerificationFactory = await hre.ethers.getContractFactory(
-        'TestVerification'
-      );
-      const testVerification = await TestVerificationFactory.deploy();
-      await testVerification.waitForDeployment();
-
-      // Get chain ID and PSYMM address
-      const chainId = await hre.ethers.provider
-        .getNetwork()
-        .then((n) => Number(n.chainId));
-      const psymmAddress = (await psymm.getAddress()) as `0x${string}`;
-      const factoryAddress =
-        (await factorySource.getAddress()) as `0x${string}`;
-
-      // Setup PPMHelper and public key
-      const ppmHelper = new PPMHelper(chainId, psymmAddress);
-      const publicKey = {
-        parity: 0,
-        x: hexlify(randomBytes(32)) as `0x${string}`,
-      };
-
-      // 1. First action: Deploy CCIPSMA
-      const custodyIdForDeploy = hre.ethers.id('test-custody-deploy-update');
-      const deployDataForSMA = hre.ethers.AbiCoder.defaultAbiCoder().encode(
-        ['bytes32'],
-        [custodyIdForDeploy]
-      );
-
-      // Get custody state
-      const custodyState = 0;
-
-      // Add deploy action to PPMHelper
-      const deployActionIndex = ppmHelper.deploySMA(
-        'CCIPSMA',
-        factoryAddress,
-        deployDataForSMA as `0x${string}`,
-        custodyState,
-        publicKey
-      );
-
-      // Add update action to PPMHelper
-      const updateActionIndex = ppmHelper.updatePPM(custodyState, publicKey);
-
-      // Get custody ID that includes all actions
-      const custodyId = ppmHelper.getCustodyID();
-
-      // Setup initial custody state with LINK tokens
-      const depositAmount = hre.ethers.parseEther('1');
-      await linkToken.mint(owner.address, depositAmount);
-      await linkToken.approve(psymmAddress, depositAmount);
-      await psymm.addressToCustody(
-        custodyId,
-        await linkToken.getAddress(),
-        depositAmount
-      );
-
-      // Setup verification data for deploy action
-      const currentTimestamp = await time.latest();
-      const deployTimestamp = currentTimestamp + 3600;
-
-      const deployVerificationData = {
-        id: custodyId,
-        state: custodyState,
-        timestamp: deployTimestamp,
-        pubKey: publicKey,
-        sig: {
-          e: hexlify(randomBytes(32)) as `0x${string}`,
-          s: hexlify(randomBytes(32)) as `0x${string}`,
-        },
-        merkleProof: ppmHelper.getMerkleProof(deployActionIndex),
-      };
-
-      // Verify using TestVerification contract before calling PSYMM
-      await expect(
-        testVerification.verifyLeaf(
-          await psymm.getPPM(custodyId),
-          deployVerificationData.merkleProof,
-          'deploySMA',
-          chainId,
-          psymmAddress,
-          custodyState,
-          ppmHelper.getPPM()[deployActionIndex].args,
-          publicKey.parity,
-          publicKey.x
-        )
-      ).to.not.be.reverted;
-
-      // Deploy CCIPSMA through PSYMM
-      await time.setNextBlockTimestamp(deployTimestamp);
-      const deployTx = await psymm.deploySMA(
-        'CCIPSMA',
-        factoryAddress,
-        deployDataForSMA,
-        deployVerificationData
-      );
-      const deployReceipt = await deployTx.wait();
-
-      // Find deployment event and get SMA address
-      const deployEvent = deployReceipt?.logs.find((log) => {
-        const eventLog = log as EventLog;
-        return eventLog.eventName === 'SMADeployed';
-      }) as EventLog;
-      expect(deployEvent).to.not.be.undefined;
-      const smaAddress = deployEvent.args[2];
-
-      // Verify CCIPSMA initialization
-      const ccipSMA = await hre.ethers.getContractAt('CCIPSMA', smaAddress);
-      expect(await ccipSMA.pSymm()).to.equal(psymmAddress);
-      expect(await ccipSMA.ccipContract()).to.equal(
-        await ccipSource.getAddress()
-      );
-      expect(await ccipSMA.localCCIPReceiver()).to.equal(
-        await ccipReceiverSource.getAddress()
-      );
-      expect(await ccipSMA.factory()).to.equal(factoryAddress);
-      expect(await ccipSMA.custodyId()).to.equal(custodyId);
-
-      // Setup verification data for PPM update
-      const updateTimestamp = deployTimestamp + 1800;
-      const newPPM = hre.ethers.id('new-ppm-value');
-
-      const updateVerificationData = {
-        id: custodyId,
-        state: custodyState,
-        timestamp: updateTimestamp,
-        pubKey: publicKey,
-        sig: {
-          e: hexlify(randomBytes(32)) as `0x${string}`,
-          s: hexlify(randomBytes(32)) as `0x${string}`,
-        },
-        merkleProof: ppmHelper.getMerkleProof(updateActionIndex),
-      };
-
-      // Get PPM item for verification
-      const ppmItem = ppmHelper.getPPM()[updateActionIndex];
-      const party = Array.isArray(ppmItem.party)
-        ? ppmItem.party[0]
-        : ppmItem.party;
-
-      // Verify using TestVerification contract before calling PSYMM
-      await expect(
-        testVerification.verifyLeaf(
-          await psymm.getPPM(custodyId),
-          updateVerificationData.merkleProof,
-          'updatePPM',
-          chainId,
-          psymmAddress,
-          custodyState,
-          ppmItem.args,
-          party.parity,
-          party.x
-        )
-      ).to.not.be.reverted;
-
-      // Update PPM
-      await time.setNextBlockTimestamp(updateTimestamp);
-      const updateTx = await psymm.updatePPM(newPPM, updateVerificationData);
-      const updateReceipt = await updateTx.wait();
-
-      // Verify PPM update event
-      const ppmEvent = updateReceipt?.logs.find(
-        (log) => (log as EventLog).eventName === 'PPMUpdated'
-      ) as EventLog;
-      expect(ppmEvent).to.not.be.undefined;
-      expect(ppmEvent.args[1]).to.equal(newPPM);
-
-      // Verify PPM was updated
-      expect(await psymm.getPPM(custodyId)).to.equal(newPPM);
-    });
-
-    it('should send updatePPM through CCIPSMA to CCIP', async function () {
-      const {
-        psymm,
-        owner,
-        linkToken,
-        ccipSource,
-        ccipSMASource,
-        ppmHelper,
-        publicKey,
-      } = await loadFixture(deployCCIPSMA);
-
-      // Get Custody Id
-      const custodyId = ppmHelper.getCustodyID();
-
-      // Setup verification data for PPM update
-      const currentTimestamp = await time.latest();
-      const updateTimestamp = currentTimestamp + 3600;
-
-      const updateVerificationData = {
-        id: custodyId,
-        state: 0,
-        timestamp: updateTimestamp,
-        pubKey: publicKey,
-        sig: {
-          e: hexlify(randomBytes(32)) as `0x${string}`,
-          s: hexlify(randomBytes(32)) as `0x${string}`,
-        },
-        merkleProof: ppmHelper.getMerkleProof(1),
-      };
-
-      // Update PPM
-      const newPPM = hre.ethers.id('new-ppm-value');
-      await time.setNextBlockTimestamp(updateTimestamp);
-      const updateTx = await psymm.updatePPM(newPPM, updateVerificationData);
-      const updateReceipt = await updateTx.wait();
-
-      // Verify PPM update event
-      const ppmEvent = updateReceipt?.logs.find(
-        (log) => (log as EventLog).eventName === 'PPMUpdated'
-      ) as EventLog;
-      expect(ppmEvent).to.not.be.undefined;
-      expect(ppmEvent.args[1]).to.equal(newPPM);
-
-      // Verify PPM was updated
-      expect(await psymm.getPPM(custodyId)).to.equal(newPPM);
-
-      // Transfer LINK tokens to CCIPSMA for fees
-      await linkToken.transfer(
-        await ccipSMASource.getAddress(),
-        parseEther('100')
-      );
-
-      // Have CCIPSMA approve CCIP to spend its LINK tokens
-      await ccipSMASource.approveToken(
-        await linkToken.getAddress(),
-        await ccipSource.getAddress(),
-        parseEther('1000000000000000000000000')
-      );
-
-      // Send updatePPM through CCIPSMA to CCIP
-      const sendUpdatePPMTx = await ccipSMASource.sendUpdatePPM(
-        CHAIN_SELECTOR_DEST,
-        await ccipSMASource.getAddress(),
-        newPPM,
-        updateVerificationData,
-        await linkToken.getAddress()
-      );
-      const sendReceipt = await sendUpdatePPMTx.wait();
-
-      // Get contract addresses
-      const ccipSMAAddress = await ccipSMASource.getAddress();
-      const ccipSourceAddress = await ccipSource.getAddress();
-
-      // Verify message sent event on CCIPSMA (Implicitly verifies message sent on CCIP)
-      const messageSentEventCCIPSMA = sendReceipt?.logs.find((log) => {
-        const eventLog = log as EventLog;
-        return (
-          eventLog.eventName === 'MessageSent' &&
-          eventLog.address === ccipSMAAddress
-        );
-      }) as EventLog;
-      expect(messageSentEventCCIPSMA).to.not.be.undefined;
-      expect(messageSentEventCCIPSMA.args[0]).to.equal(CHAIN_SELECTOR_DEST);
-      expect(messageSentEventCCIPSMA.args[1]).to.equal(ccipSMAAddress);
-    });
-  });
-
   describe('CCIPSMA End-to-End Cross-Chain Flow', () => {
     it('should complete cross-chain flow from CCIPSMA to CCIPReceiver via CCIP and verify PPM update on destination PSYMM', async function () {
       const {
@@ -836,10 +642,8 @@ describe('CCIPSMA Integration Tests', function () {
         publicKey,
         testVerification,
         chainId,
+        custodyId,
       } = await loadFixture(deployCCIPSMA);
-
-      // Get Custody Id
-      const custodyId = ppmHelper.getCustodyID();
 
       // Setup verification data for PPM update
       const currentTimestamp = await time.latest();
@@ -858,7 +662,6 @@ describe('CCIPSMA Integration Tests', function () {
       };
 
       // Update PPM
-      const newPPM = hre.ethers.id('new-ppm-value');
       await time.setNextBlockTimestamp(updateTimestamp);
       const updateTx = await psymm.updatePPM(custodyId, updateVerificationData);
       const updateReceipt = await updateTx.wait();
@@ -1026,6 +829,376 @@ describe('CCIPSMA Integration Tests', function () {
       await hre.network.provider.send('hardhat_stopImpersonatingAccount', [
         routerAddress,
       ]);
+    });
+  });
+
+  describe('CCIPSMA Deployment and PPM Update via CCIP', () => {
+    it('should deploy CCIPSMA through PSYMM and update PPM', async function () {
+      const {
+        psymm,
+        factorySource,
+        ccipSource,
+        ccipReceiverSource,
+        linkToken,
+        owner,
+      } = await loadFixture(deployFixture);
+
+      // Get chain ID and PSYMM address
+      const chainId = await hre.ethers.provider
+        .getNetwork()
+        .then((n) => Number(n.chainId));
+      const psymmAddress = (await psymm.getAddress()) as `0x${string}`;
+      const factoryAddress =
+        (await factorySource.getAddress()) as `0x${string}`;
+
+      // Setup PPMHelper and public key
+      const ppmHelper = new PPMHelper(chainId, psymmAddress);
+      const publicKey = {
+        parity: 0,
+        x: hexlify(randomBytes(32)) as `0x${string}`,
+      };
+
+      // 1. First action: Deploy CCIPSMA
+      const deployDataForSMA = '0x' as `0x${string}`;
+      // Get custody state
+      const custodyState = 0;
+
+      // Add deploy action to PPMHelper
+      const deployActionIndex = ppmHelper.deploySMA(
+        SMAType.CCIP,
+        factoryAddress,
+        deployDataForSMA as `0x${string}`,
+        custodyState,
+        publicKey
+      );
+
+      // Add update action to PPMHelper
+      const updateActionIndex = ppmHelper.updatePPM(custodyState, publicKey);
+
+      // Get custody ID that includes all actions
+      const custodyId = ppmHelper.getCustodyID();
+
+      // Setup initial custody state with LINK tokens
+      const depositAmount = hre.ethers.parseEther('1');
+      await linkToken.mint(owner.address, depositAmount);
+      await linkToken.approve(psymmAddress, depositAmount);
+      await psymm.addressToCustody(
+        custodyId,
+        await linkToken.getAddress(),
+        depositAmount
+      );
+
+      // Setup verification data for deploy action
+      const currentTimestamp = await time.latest();
+      const deployTimestamp = currentTimestamp + 3600;
+
+      const deployVerificationData = {
+        id: custodyId,
+        state: custodyState,
+        timestamp: deployTimestamp,
+        pubKey: publicKey,
+        sig: {
+          e: hexlify(randomBytes(32)) as `0x${string}`,
+          s: hexlify(randomBytes(32)) as `0x${string}`,
+        },
+        merkleProof: ppmHelper.getMerkleProof(deployActionIndex),
+      };
+
+      // Deploy CCIPSMA through PSYMM
+      await time.setNextBlockTimestamp(deployTimestamp);
+      const deployTx = await psymm.deploySMA(
+        SMAType.CCIP,
+        factoryAddress,
+        deployDataForSMA,
+        deployVerificationData
+      );
+      const deployReceipt = await deployTx.wait();
+
+      // Find deployment event and get SMA address
+      const deployEvent = deployReceipt?.logs.find((log) => {
+        const eventLog = log as EventLog;
+        return eventLog.eventName === 'SMADeployed';
+      }) as EventLog;
+      expect(deployEvent).to.not.be.undefined;
+      const smaAddress = deployEvent.args[2];
+
+      // Verify CCIPSMA initialization
+      const ccipSMA = await hre.ethers.getContractAt('CCIPSMA', smaAddress);
+      expect(await ccipSMA.pSymm()).to.equal(psymmAddress);
+      expect(await ccipSMA.ccipContract()).to.equal(
+        await ccipSource.getAddress()
+      );
+      expect(await ccipSMA.localCCIPReceiver()).to.equal(
+        await ccipReceiverSource.getAddress()
+      );
+      expect(await ccipSMA.factory()).to.equal(factoryAddress);
+      expect(await ccipSMA.custodyId()).to.equal(custodyId);
+
+      // Setup verification data for PPM update
+      const updateTimestamp = deployTimestamp + 1800;
+      const newPPM = hre.ethers.id('new-ppm-value');
+
+      const updateVerificationData = {
+        id: custodyId,
+        state: custodyState,
+        timestamp: updateTimestamp,
+        pubKey: publicKey,
+        sig: {
+          e: hexlify(randomBytes(32)) as `0x${string}`,
+          s: hexlify(randomBytes(32)) as `0x${string}`,
+        },
+        merkleProof: ppmHelper.getMerkleProof(updateActionIndex),
+      };
+
+      // Get PPM item for verification
+      const ppmItem = ppmHelper.getPPM()[updateActionIndex];
+      const party = Array.isArray(ppmItem.party)
+        ? ppmItem.party[0]
+        : ppmItem.party;
+
+      // Update PPM
+      await time.setNextBlockTimestamp(updateTimestamp);
+      const updateTx = await psymm.updatePPM(newPPM, updateVerificationData);
+      const updateReceipt = await updateTx.wait();
+
+      // Verify PPM update event
+      const ppmEvent = updateReceipt?.logs.find(
+        (log) => (log as EventLog).eventName === 'PPMUpdated'
+      ) as EventLog;
+      expect(ppmEvent).to.not.be.undefined;
+      expect(ppmEvent.args[1]).to.equal(newPPM);
+
+      // Verify PPM was updated
+      expect(await psymm.getPPM(custodyId)).to.equal(newPPM);
+    });
+
+    it('should whitelist CCIPSMA through PSYMM and update PPM', async function () {
+      const { psymm, owner, linkToken, ppmHelper, ccipSMASource, publicKey } =
+        await loadFixture(deployCCIPSMA);
+
+      // Get custody ID
+      const custodyId = ppmHelper.getCustodyID();
+
+      // Setup verification data for PPM update
+      const currentTimestamp = await time.latest();
+      const updateTimestamp = currentTimestamp + 3600;
+
+      const updateVerificationData = {
+        id: custodyId,
+        state: 0,
+        timestamp: updateTimestamp,
+        pubKey: publicKey,
+        sig: {
+          e: hexlify(randomBytes(32)) as `0x${string}`,
+          s: hexlify(randomBytes(32)) as `0x${string}`,
+        },
+        merkleProof: ppmHelper.getMerkleProof(1),
+      };
+
+      // Update PPM
+      const newPPM = hre.ethers.id('new-ppm-value');
+      await time.setNextBlockTimestamp(updateTimestamp);
+      const updateTx = await psymm.updatePPM(newPPM, updateVerificationData);
+      const updateReceipt = await updateTx.wait();
+
+      // Verify PPM update event
+      const ppmEvent = updateReceipt?.logs.find(
+        (log) => (log as EventLog).eventName === 'PPMUpdated'
+      ) as EventLog;
+      expect(ppmEvent).to.not.be.undefined;
+      expect(ppmEvent.args[1]).to.equal(newPPM);
+
+      // Verify PPM was updated
+      expect(await psymm.getPPM(custodyId)).to.equal(newPPM);
+    });
+
+    it('should send updatePPM through CCIPSMA to CCIP', async function () {
+      const {
+        psymm,
+        owner,
+        linkToken,
+        ccipSource,
+        ccipSMASource,
+        ppmHelper,
+        publicKey,
+      } = await loadFixture(deployCCIPSMA);
+
+      // Get Custody Id
+      const custodyId = ppmHelper.getCustodyID();
+
+      // Setup verification data for PPM update
+      const currentTimestamp = await time.latest();
+      const updateTimestamp = currentTimestamp + 3600;
+
+      const updateVerificationData = {
+        id: custodyId,
+        state: 0,
+        timestamp: updateTimestamp,
+        pubKey: publicKey,
+        sig: {
+          e: hexlify(randomBytes(32)) as `0x${string}`,
+          s: hexlify(randomBytes(32)) as `0x${string}`,
+        },
+        merkleProof: ppmHelper.getMerkleProof(1),
+      };
+
+      // Update PPM
+      const newPPM = hre.ethers.id('new-ppm-value');
+      await time.setNextBlockTimestamp(updateTimestamp);
+      const updateTx = await psymm.updatePPM(newPPM, updateVerificationData);
+      const updateReceipt = await updateTx.wait();
+
+      // Verify PPM update event
+      const ppmEvent = updateReceipt?.logs.find(
+        (log) => (log as EventLog).eventName === 'PPMUpdated'
+      ) as EventLog;
+      expect(ppmEvent).to.not.be.undefined;
+      expect(ppmEvent.args[1]).to.equal(newPPM);
+
+      // Verify PPM was updated
+      expect(await psymm.getPPM(custodyId)).to.equal(newPPM);
+
+      // Transfer LINK tokens to CCIPSMA for fees
+      await linkToken.transfer(
+        await ccipSMASource.getAddress(),
+        parseEther('100')
+      );
+
+      // Have CCIPSMA approve CCIP to spend its LINK tokens
+      await ccipSMASource.approveToken(
+        await linkToken.getAddress(),
+        await ccipSource.getAddress(),
+        parseEther('1000000000000000000000000')
+      );
+
+      // Send updatePPM through CCIPSMA to CCIP
+      const sendUpdatePPMTx = await ccipSMASource.sendUpdatePPM(
+        CHAIN_SELECTOR_DEST,
+        await ccipSMASource.getAddress(),
+        newPPM,
+        updateVerificationData,
+        await linkToken.getAddress()
+      );
+      const sendReceipt = await sendUpdatePPMTx.wait();
+
+      // Get contract addresses
+      const ccipSMAAddress = await ccipSMASource.getAddress();
+      const ccipSourceAddress = await ccipSource.getAddress();
+
+      // Verify message sent event on CCIPSMA (Implicitly verifies message sent on CCIP)
+      const messageSentEventCCIPSMA = sendReceipt?.logs.find((log) => {
+        const eventLog = log as EventLog;
+        return (
+          eventLog.eventName === 'MessageSent' &&
+          eventLog.address === ccipSMAAddress
+        );
+      }) as EventLog;
+      expect(messageSentEventCCIPSMA).to.not.be.undefined;
+      expect(messageSentEventCCIPSMA.args[0]).to.equal(CHAIN_SELECTOR_DEST);
+      expect(messageSentEventCCIPSMA.args[1]).to.equal(ccipSMAAddress);
+    });
+
+    it('Should deploy CCIPSMA directly and whitelist it in PSYMM', async function () {
+      const {
+        psymm,
+        owner,
+        linkToken,
+        ccipSource,
+        ccipReceiverSource,
+        factorySource,
+        ppmHelper,
+        publicKey,
+        chainId,
+        custodyId,
+      } = await loadFixture(deployCCIPSMA);
+
+      // Deploy CCIPSMA directly
+      const CCIPSMAFactory = await ethers.getContractFactory('CCIPSMA');
+      const ccipSMA = await CCIPSMAFactory.deploy(
+        await psymm.getAddress(),
+        await ccipSource.getAddress(), // generate random address
+        await ccipReceiverSource.getAddress(), // mock chain selector
+        await factorySource.getAddress(), // mock receiver
+        custodyId, // custodyId
+        owner.address // whitelisted caller
+      );
+
+      // Setup verification data for whitelisting
+      const currentTimestamp = await time.latest();
+      const updatePPMTimestamp = currentTimestamp + 3600;
+      const updatePPMNullifier = hexlify(randomBytes(32)) as `0x${string}`;
+
+      const updatePPMVerificationData = {
+        id: custodyId,
+        state: 0,
+        timestamp: updatePPMTimestamp,
+        pubKey: publicKey,
+        sig: {
+          e: updatePPMNullifier,
+          s: hexlify(randomBytes(32)) as `0x${string}`,
+        },
+        merkleProof: ppmHelper.getMerkleProof(1),
+      };
+
+      await time.setNextBlockTimestamp(updatePPMTimestamp);
+
+      // Add whitelist action to PPM
+      const whitelistActionIndex = ppmHelper.whitelistSMA(
+        SMAType.CCIP,
+        (await ccipSMA.getAddress()) as `0x${string}`,
+        0,
+        publicKey
+      );
+
+      // Update PPM on psymm
+      const newPPM = ppmHelper.getCustodyID();
+      const updatePPMTx = await psymm.updatePPM(
+        newPPM,
+        updatePPMVerificationData
+      );
+      const updatePPMReceipt = await updatePPMTx.wait();
+
+      // Setup verification data for whitelisting
+      const whitelistTimestamp = updatePPMTimestamp + 3600;
+      const nullifier = hexlify(randomBytes(32)) as `0x${string}`;
+
+      const verificationData = {
+        id: custodyId,
+        state: 0,
+        timestamp: whitelistTimestamp,
+        pubKey: publicKey,
+        sig: {
+          e: nullifier,
+          s: hexlify(randomBytes(32)) as `0x${string}`,
+        },
+        merkleProof: ppmHelper.getMerkleProof(whitelistActionIndex),
+      };
+
+      await time.setNextBlockTimestamp(whitelistTimestamp);
+
+      // Whitelist the CCIPSMA
+      const tx = await psymm.whitelistSMA(
+        SMAType.CCIP,
+        await ccipSMA.getAddress(),
+        verificationData
+      );
+
+      const receipt = await tx.wait();
+      const event = receipt?.logs.find((log) => {
+        const eventLog = log as EventLog;
+        return eventLog.eventName === 'SMAWhitelisted';
+      }) as EventLog;
+
+      expect(event).to.not.be.undefined;
+      expect(event!.args.smaType).to.equal(SMAType.CCIP);
+      expect(event!.args.smaAddress).to.equal(await ccipSMA.getAddress());
+
+      // Verify the SMA is whitelisted
+      const isWhitelisted = await psymm.getwhitelistedSMA(
+        custodyId,
+        await ccipSMA.getAddress()
+      );
+      expect(isWhitelisted).to.be.true;
     });
   });
 });

@@ -1,4 +1,4 @@
-import { PPMHelper, Party } from './PPMHelper';
+import { PPMHelper, Party, SMAType } from './PPMHelper';
 import { Hex } from 'viem';
 
 // Example usage of PPMBuilderV2
@@ -20,7 +20,7 @@ const party: Party = {
 // Add some items
 // 1. Deploy an SMA
 const deployIndex = ppmHelper.deploySMA(
-  'Test SMA',
+  SMAType.UNISWAPV3,
   '0x2222222222222222222222222222222222222222' as `0x${string}`,
   '0x1234' as Hex,
   0, // state
@@ -29,7 +29,7 @@ const deployIndex = ppmHelper.deploySMA(
 
 // 2. Call the SMA
 const callIndex = ppmHelper.callSMA(
-  'Test SMA',
+  SMAType.UNISWAPV3,
   '0x3333333333333333333333333333333333333333' as `0x${string}`,
   {
     type: 'transfer(address,uint256)',

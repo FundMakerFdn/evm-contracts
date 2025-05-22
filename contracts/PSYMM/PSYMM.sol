@@ -14,6 +14,14 @@ import "../interfaces/ISMAFactory.sol";
 contract PSYMM {
     using SafeERC20 for IERC20;
 
+    enum SMAType {
+        CCIP,
+        UNISWAPV3,
+        AAVE,
+        ACROSS,
+        ONEINCH
+    }
+
     struct VerificationData {
         bytes32 id;
         uint8 state;
@@ -28,6 +36,11 @@ contract PSYMM {
     event SMADeployed(
         bytes32 indexed id,
         address factoryAddress,
+        address smaAddress
+    );
+    event SMAWhitelisted(
+        bytes32 indexed id,
+        SMAType smaType,
         address smaAddress
     );
     event addressToCustodyEvent(
@@ -55,7 +68,7 @@ contract PSYMM {
     );
     event callSMAEvent(
         bytes32 indexed id,
-        string smaType,
+        SMAType smaType,
         address smaAddress,
         bytes fixedCallData,
         bytes tailCallData
@@ -79,8 +92,7 @@ contract PSYMM {
 
     mapping(bytes32 => bytes32) private custodys;
     mapping(bytes32 => mapping(address => uint256)) public custodyBalances; // custodyId => token address => balance
-    mapping(bytes32 => mapping(address => bool)) public smaAllowance; // custodyId => deployed SMA address => isAllowed
-    mapping(address => bool) public onlyCustodyOwner; // deployed SMA address => isDeployed
+    mapping(bytes32 => mapping(address => bool)) public whitelistedSMAs; // custodyId => deployed SMA address => isAllowed
     mapping(bytes32 => bool) private nullifier;
     mapping(bytes32 => uint256) public lastSMAUpdateTimestamp; // custodyId => timestamp
     mapping(bytes32 => bytes32) private PPMs;
@@ -93,6 +105,14 @@ contract PSYMM {
     mapping(uint256 => mapping(address => uint256)) public slashableCustody; // msgSeqNum => tokenId => amount
     mapping(bytes32 => mapping(address => mapping(address => uint256)))
         public freezeOrder; // custodyId => partyId => tokenId => amount
+
+    modifier onlyWhitelistedSMA(bytes32 custodyId, address smaAddress) {
+        require(
+            whitelistedSMAs[custodyId][smaAddress],
+            "PSYMM: SMA not whitelisted"
+        );
+        _;
+    }
 
     modifier checkCustodyState(bytes32 id, uint8 state) {
         require(custodyState[id] == state, "State isn't 0");
@@ -233,8 +253,7 @@ contract PSYMM {
         checkExpiry(v.timestamp)
         checkNullifier(v.sig.e)
     {
-        require(smaAllowance[v.id][smaAddress], "SMA not whitelisted");
-        require(onlyCustodyOwner[smaAddress], "No permission");
+        require(whitelistedSMAs[v.id][smaAddress], "SMA not whitelisted");
 
         VerificationUtils.verifyLeaf(
             PPMs[v.id],
@@ -302,8 +321,47 @@ contract PSYMM {
         emit PPMUpdated(v.id, _newPPM, v.timestamp);
     }
 
+    function whitelistSMA(
+        SMAType _smaType,
+        address _smaAddress,
+        VerificationData calldata v
+    )
+        external
+        checkCustodyState(v.id, v.state)
+        checkExpiry(v.timestamp)
+        checkNullifier(v.sig.e)
+    {
+        require(
+            v.timestamp > lastSMAUpdateTimestamp[v.id],
+            "Signature expired"
+        );
+
+        VerificationUtils.verifyLeaf(
+            PPMs[v.id],
+            v.merkleProof,
+            "whitelistSMA",
+            block.chainid,
+            address(this),
+            custodyState[v.id],
+            abi.encode(uint8(_smaType), _smaAddress),
+            v.pubKey.parity,
+            v.pubKey.x
+        );
+
+        VerificationUtils.verifySchnorr(
+            abi.encode(v.timestamp, "whitelistSMA", v.id, uint8(_smaType)),
+            v.pubKey,
+            v.sig
+        );
+
+        whitelistedSMAs[v.id][_smaAddress] = true;
+
+        emit SMAWhitelisted(v.id, _smaType, _smaAddress);
+    }
+
+    // TODO: Remove this function
     function deploySMA(
-        string calldata _smaType,
+        SMAType _smaType,
         address _factoryAddress,
         bytes calldata _data,
         VerificationData calldata v
@@ -348,14 +406,13 @@ contract PSYMM {
             _data,
             msg.sender
         );
-        smaAllowance[v.id][smaAddress] = true;
-        onlyCustodyOwner[smaAddress] = true;
+        whitelistedSMAs[v.id][smaAddress] = true;
 
         emit SMADeployed(v.id, _factoryAddress, smaAddress);
     }
 
     function callSMA(
-        string calldata smaType,
+        SMAType smaType,
         address smaAddress,
         bytes calldata fixedCallData,
         bytes calldata tailCallData,
@@ -365,8 +422,12 @@ contract PSYMM {
         checkCustodyState(v.id, v.state)
         checkExpiry(v.timestamp)
         checkNullifier(v.sig.e)
+        onlyWhitelistedSMA(v.id, smaAddress)
     {
-        require(smaAllowance[v.id][smaAddress], "SMA not whitelisted");
+        require(
+            v.timestamp > lastSMAUpdateTimestamp[v.id],
+            "Signature expired"
+        );
 
         VerificationUtils.verifyLeaf(
             PPMs[v.id],
@@ -492,17 +553,11 @@ contract PSYMM {
         return custodyBalances[id][token];
     }
 
-    function getSMAAllowance(
+    function getwhitelistedSMA(
         bytes32 id,
         address smaAddress
     ) external view returns (bool) {
-        return smaAllowance[id][smaAddress];
-    }
-
-    function getOnlyCustodyOwner(
-        address smaAddress
-    ) external view returns (bool) {
-        return onlyCustodyOwner[smaAddress];
+        return whitelistedSMAs[id][smaAddress];
     }
 
     function getLastSMAUpdateTimestamp(
