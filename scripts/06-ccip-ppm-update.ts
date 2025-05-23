@@ -1,13 +1,18 @@
 import { ethers } from 'hardhat';
+import hre from 'hardhat';
 import { hexlify, randomBytes } from 'ethers';
 import { PPMHelper, SMAType } from '../tests/utils/PPMHelper';
 import { time } from '@nomicfoundation/hardhat-network-helpers';
-import { ERC20 } from '../typechain-types';
+import { ERC20, MockCCIPRouter } from '../typechain-types';
 
 async function main() {
   // Constants
-  const CHAIN_SELECTOR_SOURCE = 1n;
-  const CHAIN_SELECTOR_DEST = 2n;
+  const CHAIN_SELECTOR_SOURCE = 15971525489660198786n;
+  const CHAIN_SELECTOR_DEST = 15971525489660198786n;
+  const MOCK_FEE = ethers.parseEther('0.0001');
+  const MOCK_MESSAGE_ID = hre.ethers.keccak256(
+    hre.ethers.toUtf8Bytes('mock-message-id')
+  );
 
   // Constants
   const ARBI_PSYMM = '0x06f15f5F613E414117A104CD1395af8C4F6347e6';
@@ -18,13 +23,31 @@ async function main() {
   const BASE_MULTICALL_HANDLER = '0x924a9f036260DdD5808007E1AA95f08eD08aA569';
   const USDC_ARBI_ADDRESS = '0xaf88d065e77c8cc2239327c5edb3a432268e5831';
   const USDC_BASE_ADDRESS = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
-  const CCIP_ROUTER_ADDRESS = '0x881e3A65B4d4a04dD529061dd0071cf975F58bCD';
+  let CCIP_ROUTER_ADDRESS;
   const ARBI_CHAIN_ID = 42161;
   const BASE_CHAIN_ID = 8453;
 
   // Get signers
   const [owner] = await ethers.getSigners();
   console.log('Deploying with owner:', owner.address);
+
+  // Only for testing: Impersonate the router
+  // Deploy Mock CCIP Router
+  const RouterFactory = await ethers.getContractFactory('MockCCIPRouter');
+  const router = (await RouterFactory.deploy()) as unknown as MockCCIPRouter;
+  await router.setFee(MOCK_FEE);
+  await router.setMessageId(MOCK_MESSAGE_ID);
+  CCIP_ROUTER_ADDRESS = await router.getAddress();
+  await ethers.provider.send('hardhat_impersonateAccount', [
+    CCIP_ROUTER_ADDRESS,
+  ]);
+  await hre.network.provider.send('hardhat_impersonateAccount', [
+    CCIP_ROUTER_ADDRESS,
+  ]);
+  await hre.network.provider.send('hardhat_setBalance', [
+    CCIP_ROUTER_ADDRESS,
+    ethers.toBeHex(ethers.parseEther('1')),
+  ]);
 
   // Deploy LINK token for fees
   const LinkToken = await ethers.getContractFactory('MockERC20');
@@ -252,6 +275,7 @@ async function main() {
 
   // Send updatePPM through CCIPSMA to CCIP
   console.log('Sending PPM update through CCIPSMA to CCIP...');
+  console.log('CCIP Router in CCIP: ', await ccipSource.router());
   const sendUpdatePPMTx = await ccipSMASource.sendUpdatePPM(
     CHAIN_SELECTOR_DEST,
     await ccipSMADest.getAddress(),
