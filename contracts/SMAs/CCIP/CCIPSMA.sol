@@ -9,6 +9,8 @@ import "./CCIP.sol";
 import "../../interfaces/ICCIPSMAFactory.sol";
 import "../../PSYMM/Schnorr.sol";
 
+import "hardhat/console.sol";
+
 contract CCIPSMA {
     using SafeERC20 for IERC20;
 
@@ -108,7 +110,7 @@ contract CCIPSMA {
         address _localCCIPReceiverAddress,
         address _factoryAddress,
         bytes32 _custodyId,
-        address _whitelistedCaller // TODO: Remove this after testing
+        address _whitelistedCaller
     ) {
         require(_pSymmAddress != address(0), "CCIPSMA: Invalid pSymm address");
         require(
@@ -171,7 +173,6 @@ contract CCIPSMA {
         });
 
         bytes memory encodedCCIPMessage = abi.encode(message);
-
         messageId = ccipContract.sendMessage(
             _destinationChainSelector,
             encodedCCIPMessage,

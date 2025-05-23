@@ -82,7 +82,6 @@ contract CCIP is Ownable {
         });
 
         uint256 fees = router.getFee(_destinationChainSelector, message);
-
         if (_feeToken != address(0)) {
             IERC20(_feeToken).safeTransferFrom(msg.sender, address(this), fees);
             IERC20(_feeToken).approve(address(router), fees);

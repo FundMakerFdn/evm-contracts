@@ -9,11 +9,20 @@ import {
   Hex,
   ByteArray,
   hexToBytes,
-} from "viem";
-import { StandardMerkleTree } from "@openzeppelin/merkle-tree";
+} from 'viem';
+import { StandardMerkleTree } from '@openzeppelin/merkle-tree';
 
 // Define types for the PPM items
-type PPMItemType = "deploySMA" | "callSMA" | "custodyToAddress" | "custodyToSMA" | "changeCustodyState" | "custodyToCustody" | "updatePPM" | "updateCustodyState";
+type PPMItemType =
+  | 'whitelistSMA'
+  | 'deploySMA'
+  | 'callSMA'
+  | 'custodyToAddress'
+  | 'custodyToSMA'
+  | 'changeCustodyState'
+  | 'custodyToCustody'
+  | 'updatePPM'
+  | 'updateCustodyState';
 
 interface Party {
   parity: number;
@@ -29,6 +38,14 @@ interface PPMItemExpanded {
   party: Party | Party[];
 }
 
+export enum SMAType {
+  CCIP,
+  UNISWAPV3,
+  AAVE,
+  ACROSS,
+  ONEINCH,
+}
+
 class PPMHelper {
   private ppmItems: PPMItemExpanded[];
   private merkleTree: StandardMerkleTree<any[]> | null;
@@ -42,23 +59,24 @@ class PPMHelper {
     this.ppmItems = [];
     this.merkleTree = null;
     this.argsToTypes = {
-      deploySMA: "string smaType,address factoryAddress,bytes callData",
-      callSMA: "string smaType,address smaAddress,bytes callData",
-      custodyToAddress: "address receiver",
-      custodyToSMA: "address smaAddress,address token",
-      changeCustodyState: "uint8 newState",
-      custodyToCustody: "bytes32 receiverId",
-      updatePPM: "", // No parameters
-      updateCustodyState: "", // No parameters
+      whitelistSMA: 'uint8 smaType,address smaAddress',
+      deploySMA: 'uint8 smaType,address factoryAddress,bytes callData',
+      callSMA: 'uint8 smaType,address smaAddress,bytes callData',
+      custodyToAddress: 'address receiver',
+      custodyToSMA: 'address smaAddress,address token',
+      changeCustodyState: 'uint8 newState',
+      custodyToCustody: 'bytes32 receiverId',
+      updatePPM: '', // No parameters
+      updateCustodyState: '', // No parameters
     };
   }
 
   private encodeArgs(type: PPMItemType, args: Record<string, any>): Hex {
     // Special case for empty parameters (like updatePPM)
-    if (this.argsToTypes[type] === "") {
-      return "0x" as Hex;
+    if (this.argsToTypes[type] === '') {
+      return '0x' as Hex;
     }
-    
+
     const parsed = parseAbiParameters(this.argsToTypes[type]).slice(
       0,
       Object.keys(args).length
@@ -81,8 +99,8 @@ class PPMHelper {
     const selector = keccak256(funcSig).slice(0, 10) as Hex;
 
     const paramTypes = funcType.slice(
-      funcType.indexOf("(") + 1,
-      funcType.lastIndexOf(")")
+      funcType.indexOf('(') + 1,
+      funcType.lastIndexOf(')')
     );
 
     const params = encodeAbiParameters(
@@ -94,7 +112,7 @@ class PPMHelper {
     const selectorBytes = hexToBytes(selector);
     const paramsBytes = hexToBytes(params);
     const concatenated = concat([selectorBytes, paramsBytes]);
-    
+
     return toHex(concatenated);
   }
 
@@ -107,12 +125,13 @@ class PPMHelper {
     let encodedArgs: Hex;
 
     // Handle special case for callSMA where callData might be an object
-    if (type === "callSMA" && typeof args.callData === "object" && "type" in args.callData) {
+    if (
+      type === 'callSMA' &&
+      typeof args.callData === 'object' &&
+      'type' in args.callData
+    ) {
       const callDataObj = args.callData as { type: string; args: any[] };
-      const callData = this.encodeCalldata(
-        callDataObj.type,
-        callDataObj.args
-      );
+      const callData = this.encodeCalldata(callDataObj.type, callDataObj.args);
       args = { ...args, callData };
     }
 
@@ -130,21 +149,30 @@ class PPMHelper {
     this.ppmItems.push(item);
     // Invalidate the tree so it will be rebuilt on next access
     this.merkleTree = null;
-    
+
     // Return the index of the newly added item
     return this.ppmItems.length - 1;
   }
 
   // Implementation of all supported actions
+  whitelistSMA(
+    smaType: SMAType,
+    smaAddress: Address,
+    state: number,
+    party: Party | Party[]
+  ): number {
+    return this.addItem('whitelistSMA', { smaType, smaAddress }, state, party);
+  }
+
   deploySMA(
-    smaType: string,
+    smaType: SMAType,
     factoryAddress: Address,
-    callData: Hex,
+    callData: { type: string; args: any[] } | Hex,
     state: number,
     party: Party | Party[]
   ): number {
     return this.addItem(
-      "deploySMA",
+      'deploySMA',
       { smaType, factoryAddress, callData },
       state,
       party
@@ -152,14 +180,14 @@ class PPMHelper {
   }
 
   callSMA(
-    smaType: string,
+    smaType: SMAType,
     smaAddress: Address,
     callData: { type: string; args: any[] } | Hex,
     state: number,
     party: Party | Party[]
   ): number {
     return this.addItem(
-      "callSMA",
+      'callSMA',
       { smaType, smaAddress, callData },
       state,
       party
@@ -171,12 +199,7 @@ class PPMHelper {
     state: number,
     party: Party | Party[]
   ): number {
-    return this.addItem(
-      "custodyToAddress",
-      { receiver },
-      state,
-      party
-    );
+    return this.addItem('custodyToAddress', { receiver }, state, party);
   }
 
   custodyToSMA(
@@ -185,12 +208,7 @@ class PPMHelper {
     state: number,
     party: Party | Party[]
   ): number {
-    return this.addItem(
-      "custodyToSMA",
-      { smaAddress, token },
-      state,
-      party
-    );
+    return this.addItem('custodyToSMA', { smaAddress, token }, state, party);
   }
 
   changeCustodyState(
@@ -198,12 +216,7 @@ class PPMHelper {
     state: number,
     party: Party | Party[]
   ): number {
-    return this.addItem(
-      "changeCustodyState",
-      { newState },
-      state,
-      party
-    );
+    return this.addItem('changeCustodyState', { newState }, state, party);
   }
 
   custodyToCustody(
@@ -211,36 +224,20 @@ class PPMHelper {
     state: number,
     party: Party | Party[]
   ): number {
-    return this.addItem(
-      "custodyToCustody",
-      { receiverId },
-      state,
-      party
-    );
+    return this.addItem('custodyToCustody', { receiverId }, state, party);
   }
 
-  updatePPM(
-    state: number,
-    party: Party | Party[]
-  ): number {
+  updatePPM(state: number, party: Party | Party[]): number {
     return this.addItem(
-      "updatePPM",
+      'updatePPM',
       {}, // No parameters for updatePPM
       state,
       party
     );
   }
 
-  updateCustodyState(
-    state: number,
-    party: Party | Party[]
-  ): number {
-    return this.addItem(
-      "updateCustodyState",
-      {},
-      state,
-      party
-    );
+  updateCustodyState(state: number, party: Party | Party[]): number {
+    return this.addItem('updateCustodyState', {}, state, party);
   }
 
   // Get all PPM items
@@ -256,8 +253,8 @@ class PPMHelper {
 
     const values = this.ppmItems.flatMap((item) => {
       const parties = Array.isArray(item.party) ? item.party : [item.party];
-      
-      return parties.map(party => [
+
+      return parties.map((party) => [
         item.type,
         item.chainId,
         item.pSymm,
@@ -269,13 +266,13 @@ class PPMHelper {
     });
 
     this.merkleTree = StandardMerkleTree.of(values, [
-      "string",   // entry type
-      "uint256",  // chainId
-      "address",  // pSymm
-      "uint8",    // state
-      "bytes",    // abi.encode(args)
-      "uint8",    // party.parity
-      "bytes32",  // party.x
+      'string', // entry type
+      'uint256', // chainId
+      'address', // pSymm
+      'uint8', // state
+      'bytes', // abi.encode(args)
+      'uint8', // party.parity
+      'bytes32', // party.x
     ]);
 
     return this.merkleTree;
@@ -289,12 +286,13 @@ class PPMHelper {
 
   // Get merkle proof by index
   getMerkleProof(index: number): string[] {
-
-    if(this.ppmItems.length == 1) {
+    if (this.ppmItems.length == 1) {
       return []; // No proof for single item
     }
     if (index < 0 || index >= this.ppmItems.length) {
-      throw new Error(`Invalid index: ${index}. Valid range is 0-${this.ppmItems.length - 1}`);
+      throw new Error(
+        `Invalid index: ${index}. Valid range is 0-${this.ppmItems.length - 1}`
+      );
     }
 
     const tree = this.getMerkleTree();
@@ -304,12 +302,12 @@ class PPMHelper {
   // Get merkle proof by action details (useful when you have the action but not the index)
   getMerkleProofByAction(item: PPMItemExpanded): string[] {
     const tree = this.getMerkleTree();
-    
+
     // Fix the iteration issue by using Array.from() to convert the iterator to an array
     const entries = Array.from(tree.entries());
-    
+
     const parties = Array.isArray(item.party) ? item.party : [item.party];
-    
+
     for (const party of parties) {
       for (const [i, value] of entries) {
         if (
@@ -325,27 +323,28 @@ class PPMHelper {
         }
       }
     }
-    
+
     return [];
   }
 
   // Get merkle proof by action type and args
   getMerkleProofByTypeAndArgs(
-    type: PPMItemType, 
-    args: Record<string, any>, 
-    state: number, 
+    type: PPMItemType,
+    args: Record<string, any>,
+    state: number,
     party: Party | Party[]
   ): string[] | [] {
     // Create a temporary item with the provided parameters
     let encodedArgs: Hex;
 
     // Handle special case for callSMA where callData might be an object
-    if (type === "callSMA" && typeof args.callData === "object" && "type" in args.callData) {
+    if (
+      type === 'callSMA' &&
+      typeof args.callData === 'object' &&
+      'type' in args.callData
+    ) {
       const callDataObj = args.callData as { type: string; args: any[] };
-      const callData = this.encodeCalldata(
-        callDataObj.type,
-        callDataObj.args
-      );
+      const callData = this.encodeCalldata(callDataObj.type, callDataObj.args);
       args = { ...args, callData };
     }
 
@@ -365,9 +364,13 @@ class PPMHelper {
   }
 
   // Get all actions with their corresponding indices and proofs
-  getAllActionsWithProofs(): Array<{ index: number; item: PPMItemExpanded; proof: string[] }> {
+  getAllActionsWithProofs(): Array<{
+    index: number;
+    item: PPMItemExpanded;
+    proof: string[];
+  }> {
     const tree = this.getMerkleTree();
-    
+
     return this.ppmItems.map((item, index) => ({
       index,
       item,
@@ -383,4 +386,4 @@ class PPMHelper {
 }
 
 export { PPMHelper };
-export type { PPMItemExpanded, Party }; 
+export type { PPMItemExpanded, Party };

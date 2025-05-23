@@ -1,6 +1,6 @@
 import { expect } from 'chai';
 import { ethers } from 'hardhat';
-import { PPMHelper } from './utils/PPMHelper';
+import { PPMHelper, SMAType } from './utils/PPMHelper';
 import { hexlify, randomBytes } from 'ethers';
 
 describe('Merkle Tree Tests', function () {
@@ -40,7 +40,7 @@ describe('Merkle Tree Tests', function () {
     // 1. Add deploySMA action
     actionIndices.push(
       ppmHelper.deploySMA(
-        'TestSMA',
+        SMAType.UNISWAPV3,
         hexlify(randomBytes(20)) as `0x${string}`,
         '0x' as `0x${string}`,
         0,
