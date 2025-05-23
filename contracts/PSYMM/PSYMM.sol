@@ -359,7 +359,6 @@ contract PSYMM {
         emit SMAWhitelisted(v.id, _smaType, _smaAddress);
     }
 
-    // TODO: Remove this function
     function deploySMA(
         SMAType _smaType,
         address _factoryAddress,

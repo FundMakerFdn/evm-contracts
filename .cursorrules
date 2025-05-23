@@ -1,0 +1,107 @@
+# Max EVM Contracts - Cross-Chain PPM Management System
+
+## Architecture Overview
+
+- PSYMM: Core contract for PPM (Proof of Possession Management) operations
+- CCIPSMA: Cross-Chain Interoperability Protocol Smart Message Aggregator
+- PPMHelper: Utility for managing PPM operations and Merkle proofs
+
+## Key Components
+
+### Smart Contracts
+
+- PSYMM.sol: Main contract for PPM management and SMA whitelisting
+- CCIPSMA.sol: Handles cross-chain message passing for PPM updates
+- CCIPReceiver.sol: Receives and processes cross-chain messages
+- UniswapV3SMA.sol: Uniswap V3 SMA implementation for managing Uniswap V3 pool interactions for a specific custody
+- AcroSMA.sol: Acro SMA implementation for managing Across pool interactions for a specific custody
+
+### Test Suite
+
+- 01-psymm.test.ts: Core PSYMM functionality tests
+- 02-etf-operations.test.ts: ETF-specific operations
+- 03-ppm.test.ts: PPM management tests
+- 04-ppm-helper.test.ts: PPMHelper utility tests
+- 05-UniswapV3SMA.test.ts: Uniswap V3 SMA integration tests
+- 06-ccip.test.ts: CCIP protocol tests
+- 07-CCIPSMA.test.ts: CCIPSMA integration tests
+
+### Utils
+
+- PPMHelper.ts: Helper class for PPM operations
+- deploy.ts: Deployment scripts
+- constants.ts: Shared constants
+
+## Recent Changes
+
+- Migrated SMA types to enum for better type safety
+- Added independent SMA deployment support
+- Implemented whitelistSMA function in PSYMM
+- Added cross-chain PPM update flow
+
+## Workflow
+
+### PPM Update Flow
+
+1. User calls sendUpdatePPM on PSYMM source with Merkle proof
+2. PSYMM Source Chain Processing
+3. PSYMM runs Merkle proof verification
+4. PSYMM updates PPM locally on source chain
+5. Bot listens to updatePPM event
+6. Prepares call data for source CCIPSMA's sendUpdatePPM function
+7. Call data includes \_verificationData with Merkle proof
+8. Bot calls sendUpdatePPM of CCIPSMA with prepared call data
+9. CCIPSMA calls sendMessage of CCIP
+10. Message contains: New PPM, Verification data
+11. CCIP Router receives message
+12. Forwards to destination CCIP Receiver
+13. Calls ccipReceive with encoded message containing: New PPM, Verification data
+14. Destination CCIP Receiver receives message
+15. Calls handleCCIPMessage of CCIPSMA destination
+16. Passes decoded message with: New PPM, Verification data
+17. CCIPSMA destination receives message
+18. Calls updatePPM of PSYMM destination
+19. Destination PSYMM runs Merkle proof verification
+20. Updates PPM locally on destination chain
+
+## TODO
+
+- Add more SMA type implementations
+- Enhance cross-chain flow testing
+- Add gas optimization for PPM updates
+
+## Notes
+
+- All SMA types are now handled through enum
+- PPM updates require proper Merkle proof verification
+- Cross-chain operations use CCIP protocol
+
+## Ignore
+
+- node_modules/
+- .git/
+- .env
+- .env.\*
+- coverage/
+- coverage.json
+- typechain/
+- typechain-types/
+- cache/
+- artifacts/
+- .openzeppelin/
+- .coverage/
+- .hardhat/
+- .vscode/
+- .idea/
+- \*.log
+- .DS_Store
+- package-lock.json
+- yarn.lock
+- pnpm-lock.yaml
+- .solhint.json
+- .prettierrc
+- .eslintrc
+- tsconfig.json
+- hardhat.config.ts
+- README.md
+- .cursorfile
